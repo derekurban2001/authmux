@@ -1,0 +1,134 @@
+# AuthMux
+
+A profile-based authentication manager for **Claude Code** and **OpenAI Codex CLI**.
+
+AuthMux makes multi-account usage simple:
+
+- Keep multiple auth contexts isolated per tool/profile
+- Launch each tool with the right auth context instantly
+- Set defaults per tool
+- Generate shortcut commands like `claude-work` and `codex-personal`
+- Use a terminal UI (`authmux`) for setup and day-to-day control
+
+---
+
+## Why
+
+Neither Claude Code nor Codex currently provides a first-class UX for managing many named auth contexts across multiple accounts/subscriptions.
+
+AuthMux solves this by wrapping each tool's native auth storage directory:
+
+- Claude Code → `CLAUDE_CONFIG_DIR`
+- Codex CLI → `CODEX_HOME`
+
+This enables truly isolated, parallel sessions with different accounts.
+
+---
+
+## Install
+
+### From source
+
+```bash
+git clone https://github.com/derekurban2001/authmux.git
+cd authmux
+go build -o authmux .
+# optional
+mv authmux ~/.local/bin/
+```
+
+---
+
+## Quick start
+
+```bash
+# add profile + login flow
+authmux add claude personal
+authmux add codex work
+
+# set defaults
+authmux use claude personal
+authmux use codex work
+
+# list and status
+authmux list
+authmux status
+
+# run using default profile
+authmux run claude -- --model sonnet
+authmux run codex -- --profile deep-review
+
+# run with explicit profile
+authmux run claude personal -- --print "hello"
+```
+
+Run `authmux` with no args to open the TUI.
+
+---
+
+## Commands
+
+### Core
+
+- `authmux` – open TUI
+- `authmux add <tool> <profile>`
+- `authmux list [--tool claude|codex] [--json]`
+- `authmux use <tool> <profile>`
+- `authmux run <tool> [profile] -- [tool args...]`
+- `authmux status [tool] [profile] [--json]`
+- `authmux logout <tool> <profile>`
+- `authmux rename <tool> <old-profile> <new-profile>`
+- `authmux remove <tool> <profile> [--purge]`
+
+### Shims
+
+- `authmux shim install [--dir <path>]`
+- `authmux shim uninstall --all [--dir <path>]`
+- `authmux shim uninstall <tool> <profile> [--dir <path>]`
+
+### Health
+
+- `authmux doctor [--json]`
+
+---
+
+## TUI controls
+
+- `↑/↓` or `j/k` – move selection
+- `Enter` – launch selected profile
+- `a` – add profile
+- `l` – login selected profile
+- `o` – logout selected profile
+- `u` – set selected as default
+- `d` – remove selected profile (registry only)
+- `s` – install shims
+- `r` – refresh statuses
+- `q` – quit
+
+---
+
+## Storage
+
+Default root:
+
+- `~/.authmux` (or `AUTHMUX_HOME` override)
+
+Important files/dirs:
+
+- `state.json` – profile/default registry
+- `profiles/claude/<profile>/...`
+- `profiles/codex/<profile>/...`
+
+---
+
+## Notes
+
+- AuthMux stores profile metadata, not your secret tokens directly.
+- Tokens remain managed by each tool inside its own profile directory / keychain path.
+- You can run concurrent sessions with different profiles by launching each with different profile contexts.
+
+---
+
+## License
+
+MIT

@@ -1,0 +1,17 @@
+# binaries
+/authmux
+/bin/
+/dist/
+
+# go
+*.test
+*.out
+coverage.out
+
+# local state
+.authmux/
+
+# editor
+.DS_Store
+.idea/
+.vscode/
