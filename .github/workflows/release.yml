@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -22,6 +23,12 @@ jobs:
         with:
           go-version: "1.23.x"
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -30,3 +37,81 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: "v2.5.3"
+
+      - name: Sign checksums
+        run: |
+          cosign sign-blob --yes \
+            --output-signature dist/checksums.txt.sig \
+            --output-certificate dist/checksums.txt.pem \
+            dist/checksums.txt
+
+      - name: Generate package manager manifests
+        run: |
+          bash scripts/release/generate-package-manifests.sh "${GITHUB_REF_NAME}" dist dist/package-manifests
+
+      - name: Upload package manifests artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-manifests
+          path: dist/package-manifests
+
+      - name: Upload signing and manifest assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            dist/checksums.txt.sig
+            dist/checksums.txt.pem
+            dist/package-manifests/**/*
+
+      - name: Publish package manager channels (optional)
+        if: ${{ secrets.HOMEBREW_TAP_TOKEN != '' || secrets.SCOOP_BUCKET_TOKEN != '' || secrets.WINGET_TOKEN != '' }}
+        run: |
+          bash scripts/release/publish-manifests.sh "${GITHUB_REF_NAME}" dist/package-manifests
+        env:
+          HOMEBREW_TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          SCOOP_BUCKET_REPO: ${{ vars.SCOOP_BUCKET_REPO }}
+          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          WINGET_REPO: ${{ vars.WINGET_REPO }}
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          AUTHMUX_WINGET_PACKAGE_ID: ${{ vars.AUTHMUX_WINGET_PACKAGE_ID }}
+
+      - name: Prepare npm package version
+        run: node scripts/release/prepare-npm-package.mjs "${GITHUB_REF_NAME}"
+
+      - name: Publish npm package
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        run: npm publish --access public
+        working-directory: packaging/npm-authmux-cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish_chocolatey:
+    needs: release
+    runs-on: windows-latest
+    if: ${{ secrets.CHOCOLATEY_API_KEY != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download package manifests
+        uses: actions/download-artifact@v4
+        with:
+          name: package-manifests
+          path: dist/package-manifests
+
+      - name: Publish Chocolatey package
+        shell: pwsh
+        run: |
+          choco pack dist/package-manifests/chocolatey/authmux.nuspec --outputdirectory dist/package-manifests/chocolatey
+          $pkg = Get-ChildItem dist/package-manifests/chocolatey/*.nupkg | Select-Object -First 1
+          if (-not $pkg) {
+            throw "No .nupkg produced by choco pack"
+          }
+          choco push $pkg.FullName --source https://push.chocolatey.org/ --api-key "${{ secrets.CHOCOLATEY_API_KEY }}"

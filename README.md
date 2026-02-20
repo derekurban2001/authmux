@@ -44,9 +44,15 @@ Optional env vars:
 - `AUTHMUX_INSTALL_DIR` (default: `~/.local/bin`)
 - `AUTHMUX_VERSION` (`latest` by default, or tag like `v0.1.0`)
 - `AUTHMUX_AUTO_PATH` (`1` by default; set `0` to disable PATH updates)
-- `AUTHMUX_AUTO_INSTALL_GO` (`1` by default; set `0` to disable automatic Go bootstrap when no release binary is available)
+- `AUTHMUX_VERIFY_SIGNATURES` (`1` by default; set `0` to disable cosign verification)
+- `AUTHMUX_ALLOW_SOURCE_FALLBACK` (`0` by default; set `1` to allow `go install` fallback)
+- `AUTHMUX_AUTO_INSTALL_GO` (`1` by default; only used when source fallback is enabled)
+- `AUTHMUX_COSIGN_VERSION` (default: `v2.5.3`)
+- `AUTHMUX_COSIGN_IDENTITY_RE` (advanced: certificate identity regex for cosign verification)
+- `AUTHMUX_COSIGN_OIDC_ISSUER` (advanced: OIDC issuer for cosign verification)
 
 Both installers automatically add the install directory to your PATH (current session + persistent user config) by default.
+If no tagged release exists yet, use `AUTHMUX_ALLOW_SOURCE_FALLBACK=1`.
 
 Example:
 
@@ -61,6 +67,29 @@ PowerShell example:
 $env:AUTHMUX_INSTALL_DIR = "$HOME\.local\bin"
 $env:AUTHMUX_VERSION = "latest"
 irm https://raw.githubusercontent.com/derekurban2001/authmux/main/install.ps1 | iex
+```
+
+Source fallback example (opt-in):
+
+```bash
+AUTHMUX_ALLOW_SOURCE_FALLBACK=1 curl -fsSL https://raw.githubusercontent.com/derekurban2001/authmux/main/install.sh | bash
+```
+
+### Package manager channels
+
+Release workflow generates publish-ready manifests/packages for:
+
+- Homebrew
+- Winget
+- Scoop
+- Chocolatey
+
+Release workflow can also publish npm package `@authmux/cli`:
+
+```bash
+npm i -g @authmux/cli
+# or
+pnpm add -g @authmux/cli
 ```
 
 ### From source
@@ -179,6 +208,7 @@ The test suite covers:
 ## Documentation
 
 - [`docs/INSTALL.md`](docs/INSTALL.md)
+- [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md)
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - [`docs/COMMANDS.md`](docs/COMMANDS.md)
 - [`CONTRIBUTING.md`](CONTRIBUTING.md)

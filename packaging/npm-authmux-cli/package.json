@@ -1,0 +1,36 @@
+{
+  "name": "@authmux/cli",
+  "version": "0.0.0-dev",
+  "description": "AuthMux CLI binary installer and launcher",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/derekurban2001/authmux.git"
+  },
+  "homepage": "https://github.com/derekurban2001/authmux",
+  "bugs": {
+    "url": "https://github.com/derekurban2001/authmux/issues"
+  },
+  "bin": {
+    "authmux": "bin/authmux.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "files": [
+    "bin",
+    "scripts",
+    "runtime",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "authmux",
+    "claude",
+    "codex",
+    "cli"
+  ]
+}

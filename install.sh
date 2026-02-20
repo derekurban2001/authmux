@@ -6,6 +6,11 @@ BINARY_NAME="authmux"
 INSTALL_DIR="${AUTHMUX_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${AUTHMUX_VERSION:-latest}" # latest | vX.Y.Z
 AUTO_PATH="${AUTHMUX_AUTO_PATH:-1}" # 1/true/yes/on -> persist PATH update
+VERIFY_SIGNATURES="${AUTHMUX_VERIFY_SIGNATURES:-1}" # 1/true/yes/on -> enforce cosign verification
+ALLOW_SOURCE_FALLBACK="${AUTHMUX_ALLOW_SOURCE_FALLBACK:-0}" # 1/true/yes/on -> allow go install fallback
+COSIGN_VERSION="${AUTHMUX_COSIGN_VERSION:-v2.5.3}"
+COSIGN_IDENTITY_RE="${AUTHMUX_COSIGN_IDENTITY_RE:-^https://github.com/${REPO}/.github/workflows/release.yml@refs/tags/.*$}"
+COSIGN_OIDC_ISSUER="${AUTHMUX_COSIGN_OIDC_ISSUER:-https://token.actions.githubusercontent.com}"
 
 log() { printf "[authmux-install] %s\n" "$*"; }
 warn() { printf "[authmux-install] WARN: %s\n" "$*" >&2; }
@@ -99,6 +104,64 @@ fetch() {
   fi
 }
 
+sha256_file() {
+  local file="$1"
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}'
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$file" | awk '{print $NF}'
+  else
+    err "No SHA256 tool found (need shasum, sha256sum, or openssl)"
+  fi
+}
+
+expected_hash_for_asset() {
+  local checksums_file="$1" asset="$2"
+  awk -v a="$asset" '$2 == a { print $1; exit }' "$checksums_file"
+}
+
+ensure_cosign() {
+  local os="$1" arch="$2" tmpdir="$3"
+  if command -v cosign >/dev/null 2>&1; then
+    command -v cosign
+    return 0
+  fi
+
+  local asset suffix url out
+  suffix=""
+  if [[ "$os" == "windows" ]]; then
+    suffix=".exe"
+  fi
+  asset="cosign-${os}-${arch}${suffix}"
+  url="https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/${asset}"
+  out="${tmpdir}/${asset}"
+
+  log "cosign not found; downloading ${COSIGN_VERSION} (${os}/${arch})"
+  fetch "$url" "$out" || err "Unable to download cosign from ${url}"
+  chmod +x "$out" || true
+  printf "%s" "$out"
+}
+
+verify_checksums_signature() {
+  local os="$1" arch="$2" tmpdir="$3" checksums_file="$4" sig_file="$5" cert_file="$6"
+  if ! is_truthy "$VERIFY_SIGNATURES"; then
+    warn "Signature verification disabled via AUTHMUX_VERIFY_SIGNATURES=0"
+    return 0
+  fi
+
+  local cosign_bin
+  cosign_bin="$(ensure_cosign "$os" "$arch" "$tmpdir")"
+  "$cosign_bin" verify-blob \
+    --certificate "$cert_file" \
+    --signature "$sig_file" \
+    --certificate-identity-regexp "$COSIGN_IDENTITY_RE" \
+    --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
+    "$checksums_file" >/dev/null \
+    || err "Signature verification failed for checksums.txt"
+}
+
 latest_tag() {
   local api="https://api.github.com/repos/${REPO}/releases/latest"
   local tmp
@@ -120,6 +183,8 @@ install_from_release() {
   local os="$1" arch="$2" version="$3"
   local ver_no_v="${version#v}"
   local checksums="checksums.txt"
+  local checksums_sig="checksums.txt.sig"
+  local checksums_cert="checksums.txt.pem"
   local base="https://github.com/${REPO}/releases/download/${version}"
   local bin_name
   bin_name="$(binary_filename_for_os "$os")"
@@ -153,16 +218,21 @@ install_from_release() {
     return 1
   fi
 
-  if fetch "${base}/${checksums}" "${tmpdir}/${checksums}"; then
-    if command -v shasum >/dev/null 2>&1; then
-      (cd "$tmpdir" && shasum -a 256 -c checksums.txt --ignore-missing) || err "Checksum verification failed"
-    elif command -v sha256sum >/dev/null 2>&1; then
-      (cd "$tmpdir" && sha256sum -c checksums.txt --ignore-missing) || err "Checksum verification failed"
-    else
-      warn "No sha256 tool found; skipping checksum verification"
-    fi
+  fetch "${base}/${checksums}" "${tmpdir}/${checksums}" || err "Missing release checksum file (${checksums})"
+  if is_truthy "$VERIFY_SIGNATURES"; then
+    fetch "${base}/${checksums_sig}" "${tmpdir}/${checksums_sig}" || err "Missing release signature file (${checksums_sig})"
+    fetch "${base}/${checksums_cert}" "${tmpdir}/${checksums_cert}" || err "Missing release certificate file (${checksums_cert})"
+    verify_checksums_signature "$os" "$arch" "$tmpdir" "${tmpdir}/${checksums}" "${tmpdir}/${checksums_sig}" "${tmpdir}/${checksums_cert}"
   else
-    warn "No checksums.txt found for ${version}; skipping checksum verification"
+    warn "Signature verification disabled via AUTHMUX_VERIFY_SIGNATURES=0"
+  fi
+
+  local expected_hash actual_hash
+  expected_hash="$(expected_hash_for_asset "${tmpdir}/${checksums}" "$fetched_asset")"
+  [[ -n "$expected_hash" ]] || err "No checksum entry found for ${fetched_asset}"
+  actual_hash="$(sha256_file "${tmpdir}/${fetched_asset}")"
+  if [[ "$expected_hash" != "$actual_hash" ]]; then
+    err "Checksum mismatch for ${fetched_asset}"
   fi
 
   if [[ "$fetched_asset" == *.zip ]]; then
@@ -231,7 +301,11 @@ main() {
   if [[ "$VERSION" == "latest" ]]; then
     resolved_version="$(latest_tag || true)"
     if [[ -z "$resolved_version" ]]; then
-      warn "Could not resolve latest release tag; will use go install"
+      if is_truthy "$ALLOW_SOURCE_FALLBACK"; then
+        warn "Could not resolve latest release tag; will use go install fallback"
+      else
+        err "Could not resolve latest release tag and source fallback is disabled (set AUTHMUX_ALLOW_SOURCE_FALLBACK=1 to enable)"
+      fi
     fi
   fi
 
@@ -239,10 +313,19 @@ main() {
     if install_from_release "$os" "$arch" "$resolved_version"; then
       :
     else
-      install_with_go "$os" "$VERSION"
+      if is_truthy "$ALLOW_SOURCE_FALLBACK"; then
+        warn "Release install failed; using go install fallback"
+        install_with_go "$os" "$VERSION"
+      else
+        err "Release install failed and source fallback is disabled (set AUTHMUX_ALLOW_SOURCE_FALLBACK=1 to enable)"
+      fi
     fi
   else
-    install_with_go "$os" "$VERSION"
+    if is_truthy "$ALLOW_SOURCE_FALLBACK"; then
+      install_with_go "$os" "$VERSION"
+    else
+      err "No release version resolved and source fallback is disabled (set AUTHMUX_ALLOW_SOURCE_FALLBACK=1 to enable)"
+    fi
   fi
 
   if is_truthy "$AUTO_PATH"; then

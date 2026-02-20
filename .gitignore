@@ -2,6 +2,9 @@
 /authmux
 /bin/
 /dist/
+/packaging/npm-authmux-cli/runtime/*
+!/packaging/npm-authmux-cli/runtime/.gitkeep
+/packaging/npm-authmux-cli/*.tgz
 
 # go
 *.test

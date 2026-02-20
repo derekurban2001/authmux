@@ -9,7 +9,12 @@ $BinaryName = "authmux.exe"
 $InstallDir = if ($env:AUTHMUX_INSTALL_DIR) { $env:AUTHMUX_INSTALL_DIR } else { Join-Path $HOME ".local\bin" }
 $Version = if ($env:AUTHMUX_VERSION) { $env:AUTHMUX_VERSION } else { "latest" }
 $AutoPathRaw = if ($env:AUTHMUX_AUTO_PATH) { $env:AUTHMUX_AUTO_PATH } else { "1" }
+$VerifySignaturesRaw = if ($env:AUTHMUX_VERIFY_SIGNATURES) { $env:AUTHMUX_VERIFY_SIGNATURES } else { "1" }
+$AllowSourceFallbackRaw = if ($env:AUTHMUX_ALLOW_SOURCE_FALLBACK) { $env:AUTHMUX_ALLOW_SOURCE_FALLBACK } else { "0" }
 $AutoInstallGoRaw = if ($env:AUTHMUX_AUTO_INSTALL_GO) { $env:AUTHMUX_AUTO_INSTALL_GO } else { "1" }
+$CosignVersion = if ($env:AUTHMUX_COSIGN_VERSION) { $env:AUTHMUX_COSIGN_VERSION } else { "v2.5.3" }
+$CosignIdentityRegex = if ($env:AUTHMUX_COSIGN_IDENTITY_RE) { $env:AUTHMUX_COSIGN_IDENTITY_RE } else { "^https://github.com/$Repo/.github/workflows/release.yml@refs/tags/.*$" }
+$CosignOidcIssuer = if ($env:AUTHMUX_COSIGN_OIDC_ISSUER) { $env:AUTHMUX_COSIGN_OIDC_ISSUER } else { "https://token.actions.githubusercontent.com" }
 
 function Write-Log {
   param([string]$Message)
@@ -110,21 +115,28 @@ function Ensure-GoAvailable {
   Write-Log "Go not found on PATH. Attempting automatic Go install."
 
   if (Get-Command winget -ErrorAction SilentlyContinue) {
-    try {
-      & winget install --id GoLang.Go -e --scope user --accept-source-agreements --accept-package-agreements --silent --disable-interactivity
-    } catch {
-      # Continue to next installer.
-    }
-    Refresh-SessionPathFromSystem
-    if (Get-Command go -ErrorAction SilentlyContinue) {
-      Write-Log "Installed Go using winget"
-      return $true
+    $wingetAttempts = @(
+      @("--id", "GoLang.Go", "-e", "--accept-source-agreements", "--accept-package-agreements", "--silent", "--disable-interactivity"),
+      @("--id", "GoLang.Go", "-e", "--scope", "machine", "--accept-source-agreements", "--accept-package-agreements", "--silent", "--disable-interactivity")
+    )
+
+    foreach ($args in $wingetAttempts) {
+      try {
+        & winget install @args
+      } catch {
+        # Continue to next attempt.
+      }
+      Refresh-SessionPathFromSystem
+      if (Get-Command go -ErrorAction SilentlyContinue) {
+        Write-Log "Installed Go using winget"
+        return $true
+      }
     }
   }
 
   if (Get-Command scoop -ErrorAction SilentlyContinue) {
     try {
-      & scoop install go
+      & scoop install go --no-update-scoop
     } catch {
       # Continue to final failure.
     }
@@ -136,6 +148,75 @@ function Ensure-GoAvailable {
   }
 
   return $false
+}
+
+function Get-FileSha256 {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  return (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Get-ExpectedChecksum {
+  param(
+    [Parameter(Mandatory = $true)][string]$ChecksumsFile,
+    [Parameter(Mandatory = $true)][string]$AssetName
+  )
+
+  foreach ($line in Get-Content -Path $ChecksumsFile) {
+    if ($line -match "^([A-Fa-f0-9]{64})\s+(.+)$") {
+      $hash = $Matches[1].ToLowerInvariant()
+      $name = $Matches[2].Trim()
+      if ($name -eq $AssetName) {
+        return $hash
+      }
+    }
+  }
+  return $null
+}
+
+function Ensure-Cosign {
+  param(
+    [Parameter(Mandatory = $true)][string]$Arch,
+    [Parameter(Mandatory = $true)][string]$TempDir
+  )
+
+  $existing = Get-Command cosign -ErrorAction SilentlyContinue
+  if ($null -ne $existing -and $existing.Source) {
+    return $existing.Source
+  }
+
+  $asset = "cosign-windows-$Arch.exe"
+  $url = "https://github.com/sigstore/cosign/releases/download/$CosignVersion/$asset"
+  $outFile = Join-Path $TempDir $asset
+
+  Write-Log "cosign not found; downloading $CosignVersion (windows/$Arch)"
+  Invoke-Download -Url $url -OutFile $outFile
+  return $outFile
+}
+
+function Verify-ChecksumsSignature {
+  param(
+    [Parameter(Mandatory = $true)][string]$Arch,
+    [Parameter(Mandatory = $true)][string]$TempDir,
+    [Parameter(Mandatory = $true)][string]$ChecksumsPath,
+    [Parameter(Mandatory = $true)][string]$SignaturePath,
+    [Parameter(Mandatory = $true)][string]$CertificatePath
+  )
+
+  if (-not (Test-Truthy $VerifySignaturesRaw)) {
+    Write-WarnMessage "Signature verification disabled via AUTHMUX_VERIFY_SIGNATURES=0"
+    return
+  }
+
+  $cosignBin = Ensure-Cosign -Arch $Arch -TempDir $TempDir
+  & $cosignBin verify-blob `
+    --certificate $CertificatePath `
+    --signature $SignaturePath `
+    --certificate-identity-regexp $CosignIdentityRegex `
+    --certificate-oidc-issuer $CosignOidcIssuer `
+    $ChecksumsPath | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    Fail "Signature verification failed for checksums.txt"
+  }
 }
 
 function Invoke-Download {
@@ -181,6 +262,24 @@ function Install-FromRelease {
   $tempDir = New-TempDir
   try {
     Write-Log "Trying GitHub release install: $ResolvedVersion (windows/$Arch)"
+    $checksumsPath = Join-Path $tempDir "checksums.txt"
+    $checksumsSigPath = Join-Path $tempDir "checksums.txt.sig"
+    $checksumsCertPath = Join-Path $tempDir "checksums.txt.pem"
+
+    Invoke-Download -Url "$base/checksums.txt" -OutFile $checksumsPath
+    if (Test-Truthy $VerifySignaturesRaw) {
+      Invoke-Download -Url "$base/checksums.txt.sig" -OutFile $checksumsSigPath
+      Invoke-Download -Url "$base/checksums.txt.pem" -OutFile $checksumsCertPath
+      Verify-ChecksumsSignature `
+        -Arch $Arch `
+        -TempDir $tempDir `
+        -ChecksumsPath $checksumsPath `
+        -SignaturePath $checksumsSigPath `
+        -CertificatePath $checksumsCertPath
+    } else {
+      Write-WarnMessage "Signature verification disabled via AUTHMUX_VERIFY_SIGNATURES=0"
+    }
+
     foreach ($asset in $assets) {
       $assetPath = Join-Path $tempDir $asset.Name
       $assetUrl = "$base/$($asset.Name)"
@@ -188,6 +287,15 @@ function Install-FromRelease {
         Invoke-Download -Url $assetUrl -OutFile $assetPath
       } catch {
         continue
+      }
+
+      $expectedHash = Get-ExpectedChecksum -ChecksumsFile $checksumsPath -AssetName $asset.Name
+      if ([string]::IsNullOrWhiteSpace($expectedHash)) {
+        Fail "No checksum entry found for $($asset.Name)"
+      }
+      $actualHash = Get-FileSha256 -Path $assetPath
+      if ($expectedHash -ne $actualHash) {
+        Fail "Checksum mismatch for $($asset.Name)"
       }
 
       $extractDir = Join-Path $tempDir ("extract-" + $asset.Type.Replace(".", "-"))
@@ -320,13 +428,18 @@ function Ensure-PathContainsInstallDir {
 
 function Main {
   $arch = Get-Arch
+  $allowSourceFallback = Test-Truthy $AllowSourceFallbackRaw
 
   $resolvedVersion = $Version
   if ($Version -eq "latest") {
     $latest = Get-LatestTag
     if ([string]::IsNullOrWhiteSpace($latest)) {
-      Write-WarnMessage "Could not resolve latest release tag; will use go install"
-      $resolvedVersion = $null
+      if ($allowSourceFallback) {
+        Write-WarnMessage "Could not resolve latest release tag; using go install fallback"
+        $resolvedVersion = $null
+      } else {
+        Fail "Could not resolve latest release tag and source fallback is disabled (set AUTHMUX_ALLOW_SOURCE_FALLBACK=1 to enable)."
+      }
     } else {
       $resolvedVersion = $latest
     }
@@ -337,7 +450,12 @@ function Main {
     $installedFromRelease = Install-FromRelease -ResolvedVersion $resolvedVersion -Arch $arch
   }
   if (-not $installedFromRelease) {
-    Install-WithGo -RequestedVersion $Version
+    if ($allowSourceFallback) {
+      Write-WarnMessage "Release install failed; using go install fallback"
+      Install-WithGo -RequestedVersion $Version
+    } else {
+      Fail "Release install failed and source fallback is disabled (set AUTHMUX_ALLOW_SOURCE_FALLBACK=1 to enable)."
+    }
   }
 
   Ensure-PathContainsInstallDir -Dir $InstallDir
