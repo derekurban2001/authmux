@@ -224,12 +224,7 @@ cat > "${choco_dir}/chocolateyinstall.ps1" <<EOF
 \$downloadUrl = if (\$isArm64) { \$urlArm64 } else { \$url64 }
 \$downloadChecksum = if (\$isArm64) { \$checksumArm64 } else { \$checksum64 }
 
-Install-ChocolateyZipPackage `
-  -PackageName \$packageName `
-  -Url64bit \$downloadUrl `
-  -Checksum64 \$downloadChecksum `
-  -ChecksumType64 'sha256' `
-  -UnzipLocation \$toolsDir
+Install-ChocolateyZipPackage -PackageName \$packageName -Url64bit \$downloadUrl -Checksum64 \$downloadChecksum -ChecksumType64 'sha256' -UnzipLocation \$toolsDir
 
 Install-BinFile -Name 'authmux' -Path (Join-Path \$toolsDir 'authmux.exe')
 EOF
