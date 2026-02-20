@@ -25,6 +25,7 @@ Environment variables:
 - `AUTHMUX_INSTALL_DIR`: install destination (default `~/.local/bin`)
 - `AUTHMUX_VERSION`: `latest` (default) or specific tag (e.g. `v0.1.0`)
 - `AUTHMUX_AUTO_PATH`: `1` (default) to auto-add install dir to PATH, `0` to disable
+- `AUTHMUX_AUTO_INSTALL_GO`: `1` (default) to auto-install Go for source fallback when no release binary is available, `0` to disable
 
 By default, installers update PATH for the current session and persist the change for future shells.
 

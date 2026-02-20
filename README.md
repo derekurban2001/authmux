@@ -44,6 +44,7 @@ Optional env vars:
 - `AUTHMUX_INSTALL_DIR` (default: `~/.local/bin`)
 - `AUTHMUX_VERSION` (`latest` by default, or tag like `v0.1.0`)
 - `AUTHMUX_AUTO_PATH` (`1` by default; set `0` to disable PATH updates)
+- `AUTHMUX_AUTO_INSTALL_GO` (`1` by default; set `0` to disable automatic Go bootstrap when no release binary is available)
 
 Both installers automatically add the install directory to your PATH (current session + persistent user config) by default.
 

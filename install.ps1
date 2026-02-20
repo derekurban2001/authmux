@@ -9,6 +9,7 @@ $BinaryName = "authmux.exe"
 $InstallDir = if ($env:AUTHMUX_INSTALL_DIR) { $env:AUTHMUX_INSTALL_DIR } else { Join-Path $HOME ".local\bin" }
 $Version = if ($env:AUTHMUX_VERSION) { $env:AUTHMUX_VERSION } else { "latest" }
 $AutoPathRaw = if ($env:AUTHMUX_AUTO_PATH) { $env:AUTHMUX_AUTO_PATH } else { "1" }
+$AutoInstallGoRaw = if ($env:AUTHMUX_AUTO_INSTALL_GO) { $env:AUTHMUX_AUTO_INSTALL_GO } else { "1" }
 
 function Write-Log {
   param([string]$Message)
@@ -40,12 +41,101 @@ function Test-Truthy {
 }
 
 function Get-Arch {
-  $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
-  switch ($arch) {
-    "x64" { return "amd64" }
-    "arm64" { return "arm64" }
+  $arch = $null
+
+  $runtimeType = [Type]::GetType("System.Runtime.InteropServices.RuntimeInformation, System.Runtime.InteropServices.RuntimeInformation")
+  if ($null -ne $runtimeType) {
+    try {
+      $prop = $runtimeType.GetProperty("OSArchitecture")
+      if ($null -ne $prop) {
+        $value = $prop.GetValue($null, $null)
+        if ($null -ne $value) {
+          $arch = $value.ToString()
+        }
+      }
+    } catch {
+      $arch = $null
+    }
+  }
+
+  if ([string]::IsNullOrWhiteSpace($arch)) {
+    if (-not [string]::IsNullOrWhiteSpace($env:PROCESSOR_ARCHITEW6432)) {
+      $arch = $env:PROCESSOR_ARCHITEW6432
+    } elseif (-not [string]::IsNullOrWhiteSpace($env:PROCESSOR_ARCHITECTURE)) {
+      $arch = $env:PROCESSOR_ARCHITECTURE
+    }
+  }
+
+  if ([string]::IsNullOrWhiteSpace($arch)) {
+    Fail "Unable to determine architecture"
+  }
+
+  switch ($arch.ToUpperInvariant()) {
+    "X64" { return "amd64" }
+    "AMD64" { return "amd64" }
+    "X86_64" { return "amd64" }
+    "ARM64" { return "arm64" }
+    "AARCH64" { return "arm64" }
     default { Fail "Unsupported architecture: $arch" }
   }
+}
+
+function Refresh-SessionPathFromSystem {
+  $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+
+  if ([string]::IsNullOrWhiteSpace($machinePath) -and [string]::IsNullOrWhiteSpace($userPath)) {
+    return
+  }
+  if ([string]::IsNullOrWhiteSpace($machinePath)) {
+    $env:Path = $userPath
+    return
+  }
+  if ([string]::IsNullOrWhiteSpace($userPath)) {
+    $env:Path = $machinePath
+    return
+  }
+  $env:Path = "$machinePath;$userPath"
+}
+
+function Ensure-GoAvailable {
+  if (Get-Command go -ErrorAction SilentlyContinue) {
+    return $true
+  }
+
+  if (-not (Test-Truthy $AutoInstallGoRaw)) {
+    return $false
+  }
+
+  Write-Log "Go not found on PATH. Attempting automatic Go install."
+
+  if (Get-Command winget -ErrorAction SilentlyContinue) {
+    try {
+      & winget install --id GoLang.Go -e --scope user --accept-source-agreements --accept-package-agreements --silent --disable-interactivity
+    } catch {
+      # Continue to next installer.
+    }
+    Refresh-SessionPathFromSystem
+    if (Get-Command go -ErrorAction SilentlyContinue) {
+      Write-Log "Installed Go using winget"
+      return $true
+    }
+  }
+
+  if (Get-Command scoop -ErrorAction SilentlyContinue) {
+    try {
+      & scoop install go
+    } catch {
+      # Continue to final failure.
+    }
+    Refresh-SessionPathFromSystem
+    if (Get-Command go -ErrorAction SilentlyContinue) {
+      Write-Log "Installed Go using scoop"
+      return $true
+    }
+  }
+
+  return $false
 }
 
 function Invoke-Download {
@@ -138,7 +228,9 @@ function Install-WithGo {
   param([Parameter(Mandatory = $true)][string]$RequestedVersion)
 
   if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
-    Fail "go is required for fallback install because no matching release binary was found"
+    if (-not (Ensure-GoAvailable)) {
+      Fail "go is required for fallback install because no matching release binary was found. Install Go or publish a release tag (for example v0.1.0)."
+    }
   }
 
   Write-Log "Falling back to go install"
