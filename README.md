@@ -90,6 +90,8 @@ Run `authmux` with no args to open the TUI.
 
 - `authmux doctor [--json]`
 
+Detailed command docs: [`docs/COMMANDS.md`](docs/COMMANDS.md)
+
 ---
 
 ## TUI controls
@@ -118,6 +120,33 @@ Important files/dirs:
 - `state.json` – profile/default registry
 - `profiles/claude/<profile>/...`
 - `profiles/codex/<profile>/...`
+
+---
+
+## Testing
+
+```bash
+go test ./...
+go vet ./...
+```
+
+The test suite covers:
+
+- store persistence and validation
+- profile lifecycle management (create/default/rename/remove)
+- adapter command/env wiring
+- shim generation/removal behavior
+- command contract expectations (including no shorthand aliases)
+
+---
+
+## Documentation
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- [`docs/COMMANDS.md`](docs/COMMANDS.md)
+- [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- [`SECURITY.md`](SECURITY.md)
+- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 
 ---
 
