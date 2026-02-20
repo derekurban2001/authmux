@@ -70,8 +70,11 @@ jobs:
             dist/package-manifests/**/*
 
       - name: Publish package manager channels (optional)
-        if: ${{ secrets.HOMEBREW_TAP_TOKEN != '' || secrets.SCOOP_BUCKET_TOKEN != '' || secrets.WINGET_TOKEN != '' }}
         run: |
+          if [[ -z "${HOMEBREW_TAP_TOKEN}" && -z "${SCOOP_BUCKET_TOKEN}" && -z "${WINGET_TOKEN}" ]]; then
+            echo "Skipping package manager publish; no channel tokens configured."
+            exit 0
+          fi
           bash scripts/release/publish-manifests.sh "${GITHUB_REF_NAME}" dist/package-manifests
         env:
           HOMEBREW_TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO }}
@@ -86,8 +89,12 @@ jobs:
         run: node scripts/release/prepare-npm-package.mjs "${GITHUB_REF_NAME}"
 
       - name: Publish npm package
-        if: ${{ secrets.NPM_TOKEN != '' }}
-        run: npm publish --access public
+        run: |
+          if [[ -z "${NODE_AUTH_TOKEN}" ]]; then
+            echo "Skipping npm publish; NPM_TOKEN not configured."
+            exit 0
+          fi
+          npm publish --access public
         working-directory: packaging/npm-authmux-cli
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -95,7 +102,8 @@ jobs:
   publish_chocolatey:
     needs: release
     runs-on: windows-latest
-    if: ${{ secrets.CHOCOLATEY_API_KEY != '' }}
+    env:
+      CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -109,9 +117,13 @@ jobs:
       - name: Publish Chocolatey package
         shell: pwsh
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:CHOCOLATEY_API_KEY)) {
+            Write-Host "Skipping chocolatey publish; CHOCOLATEY_API_KEY not configured."
+            exit 0
+          }
           choco pack dist/package-manifests/chocolatey/authmux.nuspec --outputdirectory dist/package-manifests/chocolatey
           $pkg = Get-ChildItem dist/package-manifests/chocolatey/*.nupkg | Select-Object -First 1
           if (-not $pkg) {
             throw "No .nupkg produced by choco pack"
           }
-          choco push $pkg.FullName --source https://push.chocolatey.org/ --api-key "${{ secrets.CHOCOLATEY_API_KEY }}"
+          choco push $pkg.FullName --source https://push.chocolatey.org/ --api-key "$env:CHOCOLATEY_API_KEY"
