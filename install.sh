@@ -139,7 +139,10 @@ ensure_cosign() {
   out="${tmpdir}/${asset}"
 
   log "cosign not found; downloading ${COSIGN_VERSION} (${os}/${arch})"
-  fetch "$url" "$out" || err "Unable to download cosign from ${url}"
+  fetch "$url" "$out" || {
+    warn "Unable to download cosign from ${url}"
+    return 1
+  }
   chmod +x "$out" || true
   printf "%s" "$out"
 }
@@ -152,14 +155,13 @@ verify_checksums_signature() {
   fi
 
   local cosign_bin
-  cosign_bin="$(ensure_cosign "$os" "$arch" "$tmpdir")"
+  cosign_bin="$(ensure_cosign "$os" "$arch" "$tmpdir")" || return 1
   "$cosign_bin" verify-blob \
     --certificate "$cert_file" \
     --signature "$sig_file" \
     --certificate-identity-regexp "$COSIGN_IDENTITY_RE" \
     --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
-    "$checksums_file" >/dev/null \
-    || err "Signature verification failed for checksums.txt"
+    "$checksums_file" >/dev/null
 }
 
 latest_tag() {
@@ -201,7 +203,7 @@ install_from_release() {
 
   local tmpdir
   tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$tmpdir"' EXIT
+  trap 'rm -rf "'"${tmpdir}"'"' RETURN
 
   log "Trying GitHub release install: ${version} (${os}/${arch})"
 
@@ -218,21 +220,37 @@ install_from_release() {
     return 1
   fi
 
-  fetch "${base}/${checksums}" "${tmpdir}/${checksums}" || err "Missing release checksum file (${checksums})"
+  fetch "${base}/${checksums}" "${tmpdir}/${checksums}" || {
+    warn "Missing release checksum file (${checksums})"
+    return 1
+  }
   if is_truthy "$VERIFY_SIGNATURES"; then
-    fetch "${base}/${checksums_sig}" "${tmpdir}/${checksums_sig}" || err "Missing release signature file (${checksums_sig})"
-    fetch "${base}/${checksums_cert}" "${tmpdir}/${checksums_cert}" || err "Missing release certificate file (${checksums_cert})"
-    verify_checksums_signature "$os" "$arch" "$tmpdir" "${tmpdir}/${checksums}" "${tmpdir}/${checksums_sig}" "${tmpdir}/${checksums_cert}"
+    fetch "${base}/${checksums_sig}" "${tmpdir}/${checksums_sig}" || {
+      warn "Missing release signature file (${checksums_sig})"
+      return 1
+    }
+    fetch "${base}/${checksums_cert}" "${tmpdir}/${checksums_cert}" || {
+      warn "Missing release certificate file (${checksums_cert})"
+      return 1
+    }
+    if ! verify_checksums_signature "$os" "$arch" "$tmpdir" "${tmpdir}/${checksums}" "${tmpdir}/${checksums_sig}" "${tmpdir}/${checksums_cert}"; then
+      warn "Signature verification failed for ${version}"
+      return 1
+    fi
   else
     warn "Signature verification disabled via AUTHMUX_VERIFY_SIGNATURES=0"
   fi
 
   local expected_hash actual_hash
   expected_hash="$(expected_hash_for_asset "${tmpdir}/${checksums}" "$fetched_asset")"
-  [[ -n "$expected_hash" ]] || err "No checksum entry found for ${fetched_asset}"
+  if [[ -z "$expected_hash" ]]; then
+    warn "No checksum entry found for ${fetched_asset}"
+    return 1
+  fi
   actual_hash="$(sha256_file "${tmpdir}/${fetched_asset}")"
   if [[ "$expected_hash" != "$actual_hash" ]]; then
-    err "Checksum mismatch for ${fetched_asset}"
+    warn "Checksum mismatch for ${fetched_asset}"
+    return 1
   fi
 
   if [[ "$fetched_asset" == *.zip ]]; then
@@ -251,7 +269,10 @@ install_from_release() {
   if [[ ! -f "${tmpdir}/${bin_name}" ]]; then
     local found
     found="$(find "$tmpdir" -type f \( -name "$bin_name" -o -name "$BINARY_NAME" \) | head -n1 || true)"
-    [[ -n "$found" ]] || err "Could not find ${bin_name} in archive"
+    if [[ -z "$found" ]]; then
+      warn "Could not find ${bin_name} in archive"
+      return 1
+    fi
     cp "$found" "${tmpdir}/${bin_name}"
   fi
 

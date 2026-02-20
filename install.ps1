@@ -224,7 +224,25 @@ function Invoke-Download {
     [Parameter(Mandatory = $true)][string]$Url,
     [Parameter(Mandatory = $true)][string]$OutFile
   )
-  Invoke-WebRequest -Uri $Url -OutFile $OutFile
+  try {
+    Invoke-WebRequest -Uri $Url -OutFile $OutFile -ErrorAction Stop
+  } catch {
+    $status = $null
+    $desc = $null
+    try {
+      if ($null -ne $_.Exception.Response) {
+        $status = [int]$_.Exception.Response.StatusCode
+        $desc = [string]$_.Exception.Response.StatusDescription
+      }
+    } catch {
+      $status = $null
+    }
+
+    if ($null -ne $status) {
+      Fail "Download failed ($status $desc): $Url"
+    }
+    Fail "Download failed: $Url ($($_.Exception.Message))"
+  }
 }
 
 function Get-LatestTag {
@@ -261,72 +279,77 @@ function Install-FromRelease {
 
   $tempDir = New-TempDir
   try {
-    Write-Log "Trying GitHub release install: $ResolvedVersion (windows/$Arch)"
-    $checksumsPath = Join-Path $tempDir "checksums.txt"
-    $checksumsSigPath = Join-Path $tempDir "checksums.txt.sig"
-    $checksumsCertPath = Join-Path $tempDir "checksums.txt.pem"
+    try {
+      Write-Log "Trying GitHub release install: $ResolvedVersion (windows/$Arch)"
+      $checksumsPath = Join-Path $tempDir "checksums.txt"
+      $checksumsSigPath = Join-Path $tempDir "checksums.txt.sig"
+      $checksumsCertPath = Join-Path $tempDir "checksums.txt.pem"
 
-    Invoke-Download -Url "$base/checksums.txt" -OutFile $checksumsPath
-    if (Test-Truthy $VerifySignaturesRaw) {
-      Invoke-Download -Url "$base/checksums.txt.sig" -OutFile $checksumsSigPath
-      Invoke-Download -Url "$base/checksums.txt.pem" -OutFile $checksumsCertPath
-      Verify-ChecksumsSignature `
-        -Arch $Arch `
-        -TempDir $tempDir `
-        -ChecksumsPath $checksumsPath `
-        -SignaturePath $checksumsSigPath `
-        -CertificatePath $checksumsCertPath
-    } else {
-      Write-WarnMessage "Signature verification disabled via AUTHMUX_VERIFY_SIGNATURES=0"
-    }
-
-    foreach ($asset in $assets) {
-      $assetPath = Join-Path $tempDir $asset.Name
-      $assetUrl = "$base/$($asset.Name)"
-      try {
-        Invoke-Download -Url $assetUrl -OutFile $assetPath
-      } catch {
-        continue
-      }
-
-      $expectedHash = Get-ExpectedChecksum -ChecksumsFile $checksumsPath -AssetName $asset.Name
-      if ([string]::IsNullOrWhiteSpace($expectedHash)) {
-        Fail "No checksum entry found for $($asset.Name)"
-      }
-      $actualHash = Get-FileSha256 -Path $assetPath
-      if ($expectedHash -ne $actualHash) {
-        Fail "Checksum mismatch for $($asset.Name)"
-      }
-
-      $extractDir = Join-Path $tempDir ("extract-" + $asset.Type.Replace(".", "-"))
-      New-Item -Path $extractDir -ItemType Directory -Force | Out-Null
-
-      if ($asset.Type -eq "zip") {
-        Expand-Archive -Path $assetPath -DestinationPath $extractDir -Force
+      Invoke-Download -Url "$base/checksums.txt" -OutFile $checksumsPath
+      if (Test-Truthy $VerifySignaturesRaw) {
+        Invoke-Download -Url "$base/checksums.txt.sig" -OutFile $checksumsSigPath
+        Invoke-Download -Url "$base/checksums.txt.pem" -OutFile $checksumsCertPath
+        Verify-ChecksumsSignature `
+          -Arch $Arch `
+          -TempDir $tempDir `
+          -ChecksumsPath $checksumsPath `
+          -SignaturePath $checksumsSigPath `
+          -CertificatePath $checksumsCertPath
       } else {
-        if (-not (Get-Command tar -ErrorAction SilentlyContinue)) {
-          Write-WarnMessage "tar not found; cannot extract $($asset.Name)"
+        Write-WarnMessage "Signature verification disabled via AUTHMUX_VERIFY_SIGNATURES=0"
+      }
+
+      foreach ($asset in $assets) {
+        $assetPath = Join-Path $tempDir $asset.Name
+        $assetUrl = "$base/$($asset.Name)"
+        try {
+          Invoke-Download -Url $assetUrl -OutFile $assetPath
+        } catch {
           continue
         }
-        & tar -xzf $assetPath -C $extractDir | Out-Null
+
+        $expectedHash = Get-ExpectedChecksum -ChecksumsFile $checksumsPath -AssetName $asset.Name
+        if ([string]::IsNullOrWhiteSpace($expectedHash)) {
+          Fail "No checksum entry found for $($asset.Name)"
+        }
+        $actualHash = Get-FileSha256 -Path $assetPath
+        if ($expectedHash -ne $actualHash) {
+          Fail "Checksum mismatch for $($asset.Name)"
+        }
+
+        $extractDir = Join-Path $tempDir ("extract-" + $asset.Type.Replace(".", "-"))
+        New-Item -Path $extractDir -ItemType Directory -Force | Out-Null
+
+        if ($asset.Type -eq "zip") {
+          Expand-Archive -Path $assetPath -DestinationPath $extractDir -Force
+        } else {
+          if (-not (Get-Command tar -ErrorAction SilentlyContinue)) {
+            Write-WarnMessage "tar not found; cannot extract $($asset.Name)"
+            continue
+          }
+          & tar -xzf $assetPath -C $extractDir | Out-Null
+        }
+
+        $candidate = Get-ChildItem -Path $extractDir -Recurse -File |
+          Where-Object { $_.Name -ieq $BinaryName -or $_.Name -ieq $BinaryBase } |
+          Select-Object -First 1
+        if ($null -eq $candidate) {
+          continue
+        }
+
+        New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null
+        $dest = Join-Path $InstallDir $BinaryName
+        Copy-Item -Path $candidate.FullName -Destination $dest -Force
+        Write-Log "Installed $BinaryName to $dest"
+        return $true
       }
 
-      $candidate = Get-ChildItem -Path $extractDir -Recurse -File |
-        Where-Object { $_.Name -ieq $BinaryName -or $_.Name -ieq $BinaryBase } |
-        Select-Object -First 1
-      if ($null -eq $candidate) {
-        continue
-      }
-
-      New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null
-      $dest = Join-Path $InstallDir $BinaryName
-      Copy-Item -Path $candidate.FullName -Destination $dest -Force
-      Write-Log "Installed $BinaryName to $dest"
-      return $true
+      Write-WarnMessage "Release asset not found for windows/$Arch"
+      return $false
+    } catch {
+      Write-WarnMessage "Release install failed: $($_.Exception.Message)"
+      return $false
     }
-
-    Write-WarnMessage "Release asset not found for windows/$Arch"
-    return $false
   } finally {
     Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
   }
