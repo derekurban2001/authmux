@@ -27,6 +27,24 @@ This enables truly isolated, parallel sessions with different accounts.
 
 ## Install
 
+### One-command install (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/derekurban2001/authmux/main/install.sh | bash
+```
+
+Optional env vars:
+
+- `AUTHMUX_INSTALL_DIR` (default: `~/.local/bin`)
+- `AUTHMUX_VERSION` (`latest` by default, or tag like `v0.1.0`)
+
+Example:
+
+```bash
+AUTHMUX_INSTALL_DIR="$HOME/bin" AUTHMUX_VERSION="latest" \
+  curl -fsSL https://raw.githubusercontent.com/derekurban2001/authmux/main/install.sh | bash
+```
+
 ### From source
 
 ```bash
@@ -142,6 +160,7 @@ The test suite covers:
 
 ## Documentation
 
+- [`docs/INSTALL.md`](docs/INSTALL.md)
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - [`docs/COMMANDS.md`](docs/COMMANDS.md)
 - [`CONTRIBUTING.md`](CONTRIBUTING.md)
