@@ -5,6 +5,7 @@ REPO="derekurban2001/authmux"
 BINARY_NAME="authmux"
 INSTALL_DIR="${AUTHMUX_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${AUTHMUX_VERSION:-latest}" # latest | vX.Y.Z
+AUTO_PATH="${AUTHMUX_AUTO_PATH:-1}" # 1/true/yes/on -> persist PATH update
 
 log() { printf "[authmux-install] %s\n" "$*"; }
 warn() { printf "[authmux-install] WARN: %s\n" "$*" >&2; }
@@ -12,6 +13,58 @@ err() { printf "[authmux-install] ERROR: %s\n" "$*" >&2; exit 1; }
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || err "Required command not found: $1"
+}
+
+is_truthy() {
+  case "${1,,}" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+path_contains_dir() {
+  local dir="$1"
+  case ":$PATH:" in
+    *":${dir}:"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+default_profile_file() {
+  if [[ -n "${ZSH_VERSION:-}" || "${SHELL:-}" == *zsh ]]; then
+    printf "%s" "${HOME}/.zshrc"
+  elif [[ -n "${BASH_VERSION:-}" || "${SHELL:-}" == *bash ]]; then
+    printf "%s" "${HOME}/.bashrc"
+  else
+    printf "%s" "${HOME}/.profile"
+  fi
+}
+
+persist_path_update() {
+  local profile line marker
+  profile="$(default_profile_file)"
+  marker="# Added by authmux installer"
+  line="export PATH=\"${INSTALL_DIR}:\$PATH\""
+
+  mkdir -p "$(dirname "$profile")"
+  touch "$profile"
+
+  if grep -Fqs "$line" "$profile"; then
+    log "PATH already configured in ${profile}"
+    return 0
+  fi
+
+  printf "\n%s\n%s\n" "$marker" "$line" >> "$profile"
+  log "Added ${INSTALL_DIR} to PATH in ${profile}"
+}
+
+binary_filename_for_os() {
+  local os="$1"
+  if [[ "$os" == "windows" ]]; then
+    printf "%s.exe" "$BINARY_NAME"
+  else
+    printf "%s" "$BINARY_NAME"
+  fi
 }
 
 detect_os() {
@@ -66,17 +119,37 @@ latest_tag() {
 install_from_release() {
   local os="$1" arch="$2" version="$3"
   local ver_no_v="${version#v}"
-  local asset="${BINARY_NAME}_${ver_no_v}_${os}_${arch}.tar.gz"
   local checksums="checksums.txt"
   local base="https://github.com/${REPO}/releases/download/${version}"
+  local bin_name
+  bin_name="$(binary_filename_for_os "$os")"
+
+  local -a assets
+  if [[ "$os" == "windows" ]]; then
+    assets=(
+      "${BINARY_NAME}_${ver_no_v}_${os}_${arch}.zip"
+      "${BINARY_NAME}_${ver_no_v}_${os}_${arch}.tar.gz"
+    )
+  else
+    assets=("${BINARY_NAME}_${ver_no_v}_${os}_${arch}.tar.gz")
+  fi
 
   local tmpdir
   tmpdir="$(mktemp -d)"
   trap 'rm -rf "$tmpdir"' EXIT
 
   log "Trying GitHub release install: ${version} (${os}/${arch})"
-  if ! fetch "${base}/${asset}" "${tmpdir}/${asset}"; then
-    warn "Release asset not found: ${asset}"
+
+  local fetched_asset=""
+  local asset
+  for asset in "${assets[@]}"; do
+    if fetch "${base}/${asset}" "${tmpdir}/${asset}"; then
+      fetched_asset="$asset"
+      break
+    fi
+  done
+  if [[ -z "$fetched_asset" ]]; then
+    warn "Release asset not found for ${os}/${arch}"
     return 1
   fi
 
@@ -92,40 +165,61 @@ install_from_release() {
     warn "No checksums.txt found for ${version}; skipping checksum verification"
   fi
 
-  tar -xzf "${tmpdir}/${asset}" -C "$tmpdir"
-  if [[ ! -f "${tmpdir}/${BINARY_NAME}" ]]; then
+  if [[ "$fetched_asset" == *.zip ]]; then
+    if command -v unzip >/dev/null 2>&1; then
+      unzip -q "${tmpdir}/${fetched_asset}" -d "$tmpdir"
+    elif command -v bsdtar >/dev/null 2>&1; then
+      bsdtar -xf "${tmpdir}/${fetched_asset}" -C "$tmpdir"
+    else
+      warn "No unzip tool found; cannot extract ${fetched_asset}"
+      return 1
+    fi
+  else
+    tar -xzf "${tmpdir}/${fetched_asset}" -C "$tmpdir"
+  fi
+
+  if [[ ! -f "${tmpdir}/${bin_name}" ]]; then
     local found
-    found="$(find "$tmpdir" -type f -name "$BINARY_NAME" | head -n1 || true)"
-    [[ -n "$found" ]] || err "Could not find ${BINARY_NAME} in archive"
-    cp "$found" "${tmpdir}/${BINARY_NAME}"
+    found="$(find "$tmpdir" -type f \( -name "$bin_name" -o -name "$BINARY_NAME" \) | head -n1 || true)"
+    [[ -n "$found" ]] || err "Could not find ${bin_name} in archive"
+    cp "$found" "${tmpdir}/${bin_name}"
   fi
 
   mkdir -p "$INSTALL_DIR"
-  install -m 0755 "${tmpdir}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
-  log "Installed ${BINARY_NAME} to ${INSTALL_DIR}/${BINARY_NAME}"
+  install -m 0755 "${tmpdir}/${bin_name}" "${INSTALL_DIR}/${bin_name}"
+  log "Installed ${bin_name} to ${INSTALL_DIR}/${bin_name}"
   return 0
 }
 
 install_with_go() {
+  local os="$1" version="$2"
   need_cmd go
   log "Falling back to go install"
-  if [[ "$VERSION" == "latest" ]]; then
+  if [[ "$version" == "latest" ]]; then
     GO111MODULE=on go install "github.com/derekurban2001/authmux@latest"
   else
-    GO111MODULE=on go install "github.com/derekurban2001/authmux@${VERSION}"
+    GO111MODULE=on go install "github.com/derekurban2001/authmux@${version}"
   fi
   local gobin
   gobin="$(go env GOBIN)"
   if [[ -z "$gobin" ]]; then
     gobin="$(go env GOPATH)/bin"
   fi
-  if [[ ! -f "${gobin}/${BINARY_NAME}" ]]; then
-    err "go install completed but binary not found at ${gobin}/${BINARY_NAME}"
+
+  local bin_name src_bin
+  bin_name="$(binary_filename_for_os "$os")"
+  if [[ -f "${gobin}/${bin_name}" ]]; then
+    src_bin="${gobin}/${bin_name}"
+  elif [[ -f "${gobin}/${BINARY_NAME}" ]]; then
+    src_bin="${gobin}/${BINARY_NAME}"
+  else
+    err "go install completed but binary not found at ${gobin}/${bin_name}"
   fi
+
   mkdir -p "$INSTALL_DIR"
-  cp "${gobin}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
-  chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
-  log "Installed ${BINARY_NAME} to ${INSTALL_DIR}/${BINARY_NAME}"
+  cp "$src_bin" "${INSTALL_DIR}/${bin_name}"
+  chmod +x "${INSTALL_DIR}/${bin_name}"
+  log "Installed ${bin_name} to ${INSTALL_DIR}/${bin_name}"
 }
 
 main() {
@@ -145,15 +239,28 @@ main() {
     if install_from_release "$os" "$arch" "$resolved_version"; then
       :
     else
-      install_with_go
+      install_with_go "$os" "$VERSION"
     fi
   else
-    install_with_go
+    install_with_go "$os" "$VERSION"
   fi
 
-  if ! command -v "$BINARY_NAME" >/dev/null 2>&1; then
+  if is_truthy "$AUTO_PATH"; then
+    if ! path_contains_dir "$INSTALL_DIR"; then
+      export PATH="${INSTALL_DIR}:$PATH"
+      log "Added ${INSTALL_DIR} to PATH for current shell session"
+    fi
+    if ! persist_path_update; then
+      warn "Could not persist PATH update; add this to your shell config: export PATH=\"${INSTALL_DIR}:\$PATH\""
+    fi
+  fi
+
+  if ! command -v "$BINARY_NAME" >/dev/null 2>&1 && ! command -v "${BINARY_NAME}.exe" >/dev/null 2>&1; then
     warn "${BINARY_NAME} is installed but not currently on PATH"
     warn "Add this to your shell config: export PATH=\"${INSTALL_DIR}:\$PATH\""
+    if is_truthy "$AUTO_PATH"; then
+      warn "Restart your shell so PATH changes take effect"
+    fi
   fi
 
   log "Done"

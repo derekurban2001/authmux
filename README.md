@@ -33,16 +33,33 @@ This enables truly isolated, parallel sessions with different accounts.
 curl -fsSL https://raw.githubusercontent.com/derekurban2001/authmux/main/install.sh | bash
 ```
 
+For Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/derekurban2001/authmux/main/install.ps1 | iex
+```
+
 Optional env vars:
 
 - `AUTHMUX_INSTALL_DIR` (default: `~/.local/bin`)
 - `AUTHMUX_VERSION` (`latest` by default, or tag like `v0.1.0`)
+- `AUTHMUX_AUTO_PATH` (`1` by default; set `0` to disable PATH updates)
+
+Both installers automatically add the install directory to your PATH (current session + persistent user config) by default.
 
 Example:
 
 ```bash
 AUTHMUX_INSTALL_DIR="$HOME/bin" AUTHMUX_VERSION="latest" \
   curl -fsSL https://raw.githubusercontent.com/derekurban2001/authmux/main/install.sh | bash
+```
+
+PowerShell example:
+
+```powershell
+$env:AUTHMUX_INSTALL_DIR = "$HOME\.local\bin"
+$env:AUTHMUX_VERSION = "latest"
+irm https://raw.githubusercontent.com/derekurban2001/authmux/main/install.ps1 | iex
 ```
 
 ### From source
