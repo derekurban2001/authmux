@@ -42,8 +42,8 @@ The TUI (`internal/tui`) wraps app actions:
 
 `internal/shim` generates launcher scripts:
 
-- `claude-<profile>`
-- `codex-<profile>`
+- Unix/macOS/Linux: `claude-<profile>`, `codex-<profile>`
+- Windows: `claude-<profile>.cmd`, `codex-<profile>.cmd`
 
 Each shim executes:
 

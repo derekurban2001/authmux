@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -257,6 +258,10 @@ func (m model) updateAddName(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.message = "Failed: " + err.Error()
 			return m, nil
 		}
+		shimWarning := ""
+		if _, err := m.installShimForProfile(profile); err != nil {
+			shimWarning = " (shim warning: " + err.Error() + ")"
+		}
 		adapter, err := adapters.Get(profile.Tool)
 		if err != nil {
 			m.message = err.Error()
@@ -264,7 +269,7 @@ func (m model) updateAddName(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.mode = modeNormal
 		m.nameInput.Blur()
-		m.message = fmt.Sprintf("Launching login for %s/%s", profile.Tool, profile.Name)
+		m.message = fmt.Sprintf("Launching login for %s/%s%s", profile.Tool, profile.Name, shimWarning)
 		cmd := adapter.LoginCommand(profile.Dir)
 		return m, tea.ExecProcess(cmd, func(err error) tea.Msg { return actionDoneMsg{err: err} })
 	}
@@ -306,10 +311,7 @@ func (m model) installShims() (tea.Model, tea.Cmd) {
 		m.message = "Failed to detect shim dir: " + err.Error()
 		return m, nil
 	}
-	authmuxBin, err := exec.LookPath("authmux")
-	if err != nil {
-		authmuxBin = "authmux"
-	}
+	authmuxBin := resolveAuthmuxBin()
 	count := 0
 	for _, p := range m.state.Profiles {
 		if _, err := shim.Install(dir, p, authmuxBin); err == nil {
@@ -318,6 +320,24 @@ func (m model) installShims() (tea.Model, tea.Cmd) {
 	}
 	m.message = fmt.Sprintf("Installed %d shim(s) in %s", count, dir)
 	return m, nil
+}
+
+func (m model) installShimForProfile(profile store.Profile) (string, error) {
+	dir, err := shim.DefaultShimDir()
+	if err != nil {
+		return "", err
+	}
+	return shim.Install(dir, profile, resolveAuthmuxBin())
+}
+
+func resolveAuthmuxBin() string {
+	if exe, err := os.Executable(); err == nil && strings.TrimSpace(exe) != "" {
+		return exe
+	}
+	if bin, err := exec.LookPath("authmux"); err == nil && strings.TrimSpace(bin) != "" {
+		return bin
+	}
+	return "authmux"
 }
 
 func (m model) selectedProfile() (store.Profile, bool) {

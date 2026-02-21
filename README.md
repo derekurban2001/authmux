@@ -136,7 +136,7 @@ Run `authmux` with no args to open the TUI.
 ### Core
 
 - `authmux` – open TUI
-- `authmux add <tool> <profile>`
+- `authmux add <tool> <profile>` (also installs/updates that profile shim)
 - `authmux list [--tool claude|codex] [--json]`
 - `authmux use <tool> <profile>`
 - `authmux run <tool> [profile] -- [tool args...]`

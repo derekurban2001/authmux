@@ -6,7 +6,7 @@ Open the terminal UI.
 
 ## `authmux add <tool> <profile>`
 
-Create profile registry entry and launch tool-native login flow.
+Create profile registry entry, install/update that profile shim, and launch tool-native login flow.
 
 ## `authmux list [--tool claude|codex] [--json]`
 

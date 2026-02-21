@@ -91,6 +91,11 @@ func newAddCmd(root *string) *cobra.Command {
 			if created {
 				fmt.Printf("Created profile %s/%s\n", tool, profileName)
 			}
+			if shimPath, err := installShimForProfile(profile); err != nil {
+				fmt.Printf("Warning: could not install shim for %s/%s: %v\n", tool, profileName, err)
+			} else {
+				fmt.Printf("Installed shim: %s\n", shimPath)
+			}
 			fmt.Printf("Starting login for %s/%s...\n", tool, profileName)
 			if err := manager.LoginProfile(context.Background(), profile); err != nil {
 				return err
@@ -466,7 +471,7 @@ func newShimInstallCmd(root *string) *cobra.Command {
 			}
 			bin, err := exec.LookPath("authmux")
 			if err != nil {
-				bin = "authmux"
+				bin = resolveAuthmuxBin()
 			}
 			count := 0
 			for _, p := range st.Profiles {
@@ -481,6 +486,24 @@ func newShimInstallCmd(root *string) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&dir, "dir", "", "Directory to install shims")
 	return cmd
+}
+
+func installShimForProfile(profile store.Profile) (string, error) {
+	dir, err := shim.DefaultShimDir()
+	if err != nil {
+		return "", err
+	}
+	return shim.Install(dir, profile, resolveAuthmuxBin())
+}
+
+func resolveAuthmuxBin() string {
+	if exe, err := os.Executable(); err == nil && strings.TrimSpace(exe) != "" {
+		return exe
+	}
+	if bin, err := exec.LookPath("authmux"); err == nil && strings.TrimSpace(bin) != "" {
+		return bin
+	}
+	return "authmux"
 }
 
 func newShimUninstallCmd(root *string) *cobra.Command {
