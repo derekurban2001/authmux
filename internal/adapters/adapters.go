@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/derekurban2001/proflex-cli/internal/store"
+	"github.com/derekurban/proflex-cli/internal/store"
 )
 
 type Status struct {

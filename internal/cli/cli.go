@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/derekurban2001/proflex-cli/internal/app"
-	"github.com/derekurban2001/proflex-cli/internal/shim"
-	"github.com/derekurban2001/proflex-cli/internal/store"
+	"github.com/derekurban/proflex-cli/internal/app"
+	"github.com/derekurban/proflex-cli/internal/shim"
+	"github.com/derekurban/proflex-cli/internal/store"
 )
 
 // Run parses os.Args[1:] and dispatches to the appropriate command.

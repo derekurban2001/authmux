@@ -10,12 +10,12 @@ The release workflow (`.github/workflows/release.yml`) performs:
 2. Publish release archives and `checksums.txt`.
 3. Sign `checksums.txt` with Sigstore/cosign (keyless OIDC).
 4. Upload `checksums.txt.sig` and `checksums.txt.pem` to the release.
-5. Publish npm package `@derekurban2001/proflex-cli` when `NPM_TOKEN` is configured.
+5. Publish npm package `proflex-cli` when `NPM_TOKEN` is configured.
 
 ## Required secrets
 
 - `GITHUB_TOKEN` (provided by GitHub Actions)
-- `NPM_TOKEN` (optional, required to publish `@derekurban2001/proflex-cli`)
+- `NPM_TOKEN` (optional, required to publish `proflex-cli`)
 
 ## Installer trust model
 

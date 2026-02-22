@@ -6,9 +6,9 @@
 
 Profile manager for **Claude Code** and **OpenAI Codex CLI**.
 
-[![Tests](https://img.shields.io/github/actions/workflow/status/derekurban2001/proflex-cli/ci.yml?branch=main&style=for-the-badge&label=tests)](https://github.com/derekurban2001/proflex-cli/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/derekurban2001/proflex-cli?style=for-the-badge)](https://github.com/derekurban2001/proflex-cli/releases)
-[![License](https://img.shields.io/github/license/derekurban2001/proflex-cli?style=for-the-badge)](LICENSE)
+[![Tests](https://img.shields.io/github/actions/workflow/status/derekurban/proflex-cli/ci.yml?branch=main&style=for-the-badge&label=tests)](https://github.com/derekurban/proflex-cli/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/derekurban/proflex-cli?style=for-the-badge)](https://github.com/derekurban/proflex-cli/releases)
+[![License](https://img.shields.io/github/license/derekurban/proflex-cli?style=for-the-badge)](LICENSE)
 
 </div>
 
@@ -32,25 +32,25 @@ Each profile gets its own isolated directory. Auth happens naturally through the
 ### One-command install (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/derekurban2001/proflex-cli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/derekurban/proflex-cli/main/install.sh | bash
 ```
 
 For Windows PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/derekurban2001/proflex-cli/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/derekurban/proflex-cli/main/install.ps1 | iex
 ```
 
 ### npm
 
 ```bash
-npm i -g @derekurban2001/proflex-cli
+npm i -g proflex-cli
 ```
 
 ### From source
 
 ```bash
-go install github.com/derekurban2001/proflex-cli@latest
+go install github.com/derekurban/proflex-cli@latest
 ```
 
 ### Installer options

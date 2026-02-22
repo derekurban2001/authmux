@@ -1,3 +1,3 @@
-module github.com/derekurban2001/proflex-cli
+module github.com/derekurban/proflex-cli
 
 go 1.25.0
