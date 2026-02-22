@@ -1,18 +1,18 @@
 {
-  "name": "@authmux/cli",
+  "name": "@proflex/cli",
   "version": "0.0.0-dev",
-  "description": "AuthMux CLI binary installer and launcher",
+  "description": "Proflex CLI binary installer and launcher",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/derekurban2001/authmux.git"
+    "url": "git+https://github.com/derekurban2001/proflex.git"
   },
-  "homepage": "https://github.com/derekurban2001/authmux",
+  "homepage": "https://github.com/derekurban2001/proflex",
   "bugs": {
-    "url": "https://github.com/derekurban2001/authmux/issues"
+    "url": "https://github.com/derekurban2001/proflex/issues"
   },
   "bin": {
-    "authmux": "bin/authmux.js"
+    "proflex": "bin/proflex.js"
   },
   "scripts": {
     "postinstall": "node scripts/postinstall.js"
@@ -28,9 +28,11 @@
     "node": ">=18"
   },
   "keywords": [
-    "authmux",
+    "proflex",
     "claude",
     "codex",
-    "cli"
+    "cli",
+    "ai",
+    "profiles"
   ]
 }

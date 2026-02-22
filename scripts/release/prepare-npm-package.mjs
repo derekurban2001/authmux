@@ -13,7 +13,7 @@ if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) {
   process.exit(1);
 }
 
-const packageJsonPath = path.join("packaging", "npm-authmux-cli", "package.json");
+const packageJsonPath = path.join("packaging", "npm-proflex-cli", "package.json");
 const raw = fs.readFileSync(packageJsonPath, "utf8");
 const pkg = JSON.parse(raw);
 pkg.version = version;

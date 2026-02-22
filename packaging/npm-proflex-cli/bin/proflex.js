@@ -32,7 +32,7 @@ function mapArch() {
 function binaryPath() {
   const os = mapPlatform();
   const arch = mapArch();
-  const execName = os === "windows" ? "authmux.exe" : "authmux";
+  const execName = os === "windows" ? "proflex.exe" : "proflex";
   return path.join(__dirname, "..", "runtime", `${os}-${arch}`, execName);
 }
 
@@ -41,19 +41,19 @@ function main() {
   try {
     bin = binaryPath();
   } catch (err) {
-    console.error(`[authmux-npm] ${err.message}`);
+    console.error(`[proflex-npm] ${err.message}`);
     process.exit(1);
   }
 
   if (!fs.existsSync(bin)) {
-    console.error("[authmux-npm] AuthMux binary is missing for this platform.");
-    console.error("[authmux-npm] Reinstall with: npm i -g @authmux/cli");
+    console.error("[proflex-npm] Proflex binary is missing for this platform.");
+    console.error("[proflex-npm] Reinstall with: npm i -g @proflex/cli");
     process.exit(1);
   }
 
   const child = cp.spawnSync(bin, process.argv.slice(2), { stdio: "inherit" });
   if (child.error) {
-    console.error(`[authmux-npm] Failed to launch binary: ${child.error.message}`);
+    console.error(`[proflex-npm] Failed to launch binary: ${child.error.message}`);
     process.exit(1);
   }
   process.exit(child.status ?? 1);

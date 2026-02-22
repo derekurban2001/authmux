@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="derekurban2001/authmux"
-BINARY_NAME="authmux"
-INSTALL_DIR="${AUTHMUX_INSTALL_DIR:-$HOME/.local/bin}"
-VERSION="${AUTHMUX_VERSION:-latest}" # latest | vX.Y.Z
-AUTO_PATH="${AUTHMUX_AUTO_PATH:-1}" # 1/true/yes/on -> persist PATH update
-VERIFY_SIGNATURES="${AUTHMUX_VERIFY_SIGNATURES:-1}" # 1/true/yes/on -> enforce cosign verification
-ALLOW_SOURCE_FALLBACK="${AUTHMUX_ALLOW_SOURCE_FALLBACK:-0}" # 1/true/yes/on -> allow go install fallback
-COSIGN_VERSION="${AUTHMUX_COSIGN_VERSION:-v2.5.3}"
-COSIGN_IDENTITY_RE="${AUTHMUX_COSIGN_IDENTITY_RE:-^https://github.com/${REPO}/.github/workflows/release.yml@refs/tags/.*$}"
-COSIGN_OIDC_ISSUER="${AUTHMUX_COSIGN_OIDC_ISSUER:-https://token.actions.githubusercontent.com}"
+REPO="derekurban2001/proflex"
+BINARY_NAME="proflex"
+INSTALL_DIR="${PROFLEX_INSTALL_DIR:-$HOME/.local/bin}"
+VERSION="${PROFLEX_VERSION:-latest}" # latest | vX.Y.Z
+AUTO_PATH="${PROFLEX_AUTO_PATH:-1}" # 1/true/yes/on -> persist PATH update
+VERIFY_SIGNATURES="${PROFLEX_VERIFY_SIGNATURES:-1}" # 1/true/yes/on -> enforce cosign verification
+ALLOW_SOURCE_FALLBACK="${PROFLEX_ALLOW_SOURCE_FALLBACK:-0}" # 1/true/yes/on -> allow go install fallback
+COSIGN_VERSION="${PROFLEX_COSIGN_VERSION:-v2.5.3}"
+COSIGN_IDENTITY_RE="${PROFLEX_COSIGN_IDENTITY_RE:-^https://github.com/${REPO}/.github/workflows/release.yml@refs/tags/.*$}"
+COSIGN_OIDC_ISSUER="${PROFLEX_COSIGN_OIDC_ISSUER:-https://token.actions.githubusercontent.com}"
 
-log() { printf "[authmux-install] %s\n" "$*"; }
-warn() { printf "[authmux-install] WARN: %s\n" "$*" >&2; }
-err() { printf "[authmux-install] ERROR: %s\n" "$*" >&2; exit 1; }
+log() { printf "[proflex-install] %s\n" "$*"; }
+warn() { printf "[proflex-install] WARN: %s\n" "$*" >&2; }
+err() { printf "[proflex-install] ERROR: %s\n" "$*" >&2; exit 1; }
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || err "Required command not found: $1"
@@ -48,7 +48,7 @@ default_profile_file() {
 persist_path_update() {
   local profile line marker
   profile="$(default_profile_file)"
-  marker="# Added by authmux installer"
+  marker="# Added by proflex installer"
   line="export PATH=\"${INSTALL_DIR}:\$PATH\""
 
   mkdir -p "$(dirname "$profile")"
@@ -150,7 +150,7 @@ ensure_cosign() {
 verify_checksums_signature() {
   local os="$1" arch="$2" tmpdir="$3" checksums_file="$4" sig_file="$5" cert_file="$6"
   if ! is_truthy "$VERIFY_SIGNATURES"; then
-    warn "Signature verification disabled via AUTHMUX_VERIFY_SIGNATURES=0"
+    warn "Signature verification disabled via PROFLEX_VERIFY_SIGNATURES=0"
     return 0
   fi
 
@@ -238,7 +238,7 @@ install_from_release() {
       return 1
     fi
   else
-    warn "Signature verification disabled via AUTHMUX_VERIFY_SIGNATURES=0"
+    warn "Signature verification disabled via PROFLEX_VERIFY_SIGNATURES=0"
   fi
 
   local expected_hash actual_hash
@@ -287,9 +287,9 @@ install_with_go() {
   need_cmd go
   log "Falling back to go install"
   if [[ "$version" == "latest" ]]; then
-    GO111MODULE=on go install "github.com/derekurban2001/authmux@latest"
+    GO111MODULE=on go install "github.com/derekurban2001/proflex@latest"
   else
-    GO111MODULE=on go install "github.com/derekurban2001/authmux@${version}"
+    GO111MODULE=on go install "github.com/derekurban2001/proflex@${version}"
   fi
   local gobin
   gobin="$(go env GOBIN)"
@@ -325,7 +325,7 @@ main() {
       if is_truthy "$ALLOW_SOURCE_FALLBACK"; then
         warn "Could not resolve latest release tag; will use go install fallback"
       else
-        err "Could not resolve latest release tag and source fallback is disabled (set AUTHMUX_ALLOW_SOURCE_FALLBACK=1 to enable)"
+        err "Could not resolve latest release tag and source fallback is disabled (set PROFLEX_ALLOW_SOURCE_FALLBACK=1 to enable)"
       fi
     fi
   fi
@@ -338,14 +338,14 @@ main() {
         warn "Release install failed; using go install fallback"
         install_with_go "$os" "$VERSION"
       else
-        err "Release install failed and source fallback is disabled (set AUTHMUX_ALLOW_SOURCE_FALLBACK=1 to enable)"
+        err "Release install failed and source fallback is disabled (set PROFLEX_ALLOW_SOURCE_FALLBACK=1 to enable)"
       fi
     fi
   else
     if is_truthy "$ALLOW_SOURCE_FALLBACK"; then
       install_with_go "$os" "$VERSION"
     else
-      err "No release version resolved and source fallback is disabled (set AUTHMUX_ALLOW_SOURCE_FALLBACK=1 to enable)"
+      err "No release version resolved and source fallback is disabled (set PROFLEX_ALLOW_SOURCE_FALLBACK=1 to enable)"
     fi
   fi
 

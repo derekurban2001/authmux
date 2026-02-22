@@ -3,13 +3,13 @@
 ## One-command install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/derekurban2001/authmux/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/derekurban2001/proflex/main/install.sh | bash
 ```
 
 For Windows PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/derekurban2001/authmux/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/derekurban2001/proflex/main/install.ps1 | iex
 ```
 
 This installer will:
@@ -23,73 +23,35 @@ This installer will:
 
 Environment variables:
 
-- `AUTHMUX_INSTALL_DIR`: install destination (default `~/.local/bin`)
-- `AUTHMUX_VERSION`: `latest` (default) or specific tag (e.g. `v0.1.0`)
-- `AUTHMUX_AUTO_PATH`: `1` (default) to auto-add install dir to PATH, `0` to disable
-- `AUTHMUX_VERIFY_SIGNATURES`: `1` (default) enforce cosign verification, `0` to disable
-- `AUTHMUX_ALLOW_SOURCE_FALLBACK`: `0` (default) disable fallback to `go install`; set to `1` to enable
-- `AUTHMUX_AUTO_INSTALL_GO`: `1` (default) auto-install Go if source fallback is enabled and Go is missing
-- `AUTHMUX_COSIGN_VERSION`: cosign version used if cosign is not on PATH (default `v2.5.3`)
-- `AUTHMUX_COSIGN_IDENTITY_RE`: certificate identity regex for `cosign verify-blob`
-- `AUTHMUX_COSIGN_OIDC_ISSUER`: OIDC issuer for `cosign verify-blob`
-
-By default, installers update PATH for the current session and persist the change for future shells.
-If no tagged release exists yet, set `AUTHMUX_ALLOW_SOURCE_FALLBACK=1`.
-
-Example:
-
-```bash
-AUTHMUX_INSTALL_DIR="$HOME/bin" AUTHMUX_VERSION="latest" \
-  curl -fsSL https://raw.githubusercontent.com/derekurban2001/authmux/main/install.sh | bash
-```
-
-PowerShell example:
-
-```powershell
-$env:AUTHMUX_INSTALL_DIR = "$HOME\.local\bin"
-$env:AUTHMUX_VERSION = "latest"
-irm https://raw.githubusercontent.com/derekurban2001/authmux/main/install.ps1 | iex
-```
-
-Source fallback example (opt-in):
-
-```bash
-AUTHMUX_ALLOW_SOURCE_FALLBACK=1 curl -fsSL https://raw.githubusercontent.com/derekurban2001/authmux/main/install.sh | bash
-```
-
-## Package manager manifests
-
-Release workflow generates publish-ready manifests and packages for:
-
-- Homebrew
-- Winget
-- Scoop
-- Chocolatey
-
-Generated files are attached to each release under `package-manifests/`.
+- `PROFLEX_INSTALL_DIR`: install destination (default `~/.local/bin`)
+- `PROFLEX_VERSION`: `latest` (default) or specific tag (e.g. `v0.1.0`)
+- `PROFLEX_AUTO_PATH`: `1` (default) to auto-add install dir to PATH, `0` to disable
+- `PROFLEX_VERIFY_SIGNATURES`: `1` (default) enforce cosign verification, `0` to disable
+- `PROFLEX_ALLOW_SOURCE_FALLBACK`: `0` (default) disable fallback to `go install`; set to `1` to enable
+- `PROFLEX_AUTO_INSTALL_GO`: `1` (default) auto-install Go if source fallback is enabled and Go is missing
+- `PROFLEX_COSIGN_VERSION`: cosign version used if cosign is not on PATH (default `v2.5.3`)
+- `PROFLEX_COSIGN_IDENTITY_RE`: certificate identity regex for `cosign verify-blob`
+- `PROFLEX_COSIGN_OIDC_ISSUER`: OIDC issuer for `cosign verify-blob`
 
 ## npm / pnpm global install
 
-The release workflow also publishes `@authmux/cli` (when `NPM_TOKEN` is configured):
-
 ```bash
-npm i -g @authmux/cli
+npm i -g @proflex/cli
 # or
-pnpm add -g @authmux/cli
+pnpm add -g @proflex/cli
 ```
 
 ## From source
 
 ```bash
-git clone https://github.com/derekurban2001/authmux.git
-cd authmux
-go build -o authmux .
-mv authmux ~/.local/bin/
+git clone https://github.com/derekurban2001/proflex.git
+cd proflex
+go build -o proflex .
+mv proflex ~/.local/bin/
 ```
 
 ## Verify install
 
 ```bash
-authmux --help
-authmux doctor
+proflex --help
 ```

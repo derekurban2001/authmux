@@ -97,12 +97,12 @@ async function ensureCosign(tempDir, platform, arch) {
     return "cosign";
   }
 
-  const cosignVersion = process.env.AUTHMUX_COSIGN_VERSION || "v2.5.3";
+  const cosignVersion = process.env.PROFLEX_COSIGN_VERSION || "v2.5.3";
   const suffix = platform === "windows" ? ".exe" : "";
   const asset = `cosign-${platform}-${arch}${suffix}`;
   const outFile = path.join(tempDir, asset);
   const url = `https://github.com/sigstore/cosign/releases/download/${cosignVersion}/${asset}`;
-  console.log(`[authmux-npm] cosign not found; downloading ${cosignVersion}`);
+  console.log(`[proflex-npm] cosign not found; downloading ${cosignVersion}`);
   await fetchToFile(url, outFile);
   if (platform !== "windows") {
     fs.chmodSync(outFile, 0o755);
@@ -111,14 +111,14 @@ async function ensureCosign(tempDir, platform, arch) {
 }
 
 async function verifyChecksumsSignature(tempDir, platform, arch, checksumsPath, sigPath, certPath, repo) {
-  if (!isTruthy(process.env.AUTHMUX_VERIFY_SIGNATURES, true)) {
-    console.warn("[authmux-npm] Signature verification disabled via AUTHMUX_VERIFY_SIGNATURES=0");
+  if (!isTruthy(process.env.PROFLEX_VERIFY_SIGNATURES, true)) {
+    console.warn("[proflex-npm] Signature verification disabled via PROFLEX_VERIFY_SIGNATURES=0");
     return;
   }
   const identityRe =
-    process.env.AUTHMUX_COSIGN_IDENTITY_RE ||
+    process.env.PROFLEX_COSIGN_IDENTITY_RE ||
     `^https://github.com/${repo}/.github/workflows/release.yml@refs/tags/.*$`;
-  const oidcIssuer = process.env.AUTHMUX_COSIGN_OIDC_ISSUER || "https://token.actions.githubusercontent.com";
+  const oidcIssuer = process.env.PROFLEX_COSIGN_OIDC_ISSUER || "https://token.actions.githubusercontent.com";
   const cosignBin = await ensureCosign(tempDir, platform, arch);
   run(cosignBin, [
     "verify-blob",
@@ -156,19 +156,19 @@ function findBinary(rootDir, wantedName) {
 async function main() {
   const version = readPackageVersion();
   if (!version || version.includes("dev")) {
-    console.log("[authmux-npm] Development version detected; skipping binary download.");
+    console.log("[proflex-npm] Development version detected; skipping binary download.");
     return;
   }
 
-  const repo = process.env.AUTHMUX_REPO || "derekurban2001/authmux";
+  const repo = process.env.PROFLEX_REPO || "derekurban2001/proflex";
   const platform = mapPlatform();
   const arch = mapArch();
   const extension = platform === "windows" ? "zip" : "tar.gz";
-  const asset = `authmux_${version}_${platform}_${arch}.${extension}`;
+  const asset = `proflex_${version}_${platform}_${arch}.${extension}`;
   const tag = `v${version}`;
   const baseUrl = `https://github.com/${repo}/releases/download/${tag}`;
 
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "authmux-npm-"));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "proflex-npm-"));
   const assetPath = path.join(tempDir, asset);
   const checksumsPath = path.join(tempDir, "checksums.txt");
   const checksumsSigPath = path.join(tempDir, "checksums.txt.sig");
@@ -176,7 +176,7 @@ async function main() {
   const extractDir = path.join(tempDir, "extract");
   fs.mkdirSync(extractDir, { recursive: true });
 
-  console.log(`[authmux-npm] Downloading ${asset}`);
+  console.log(`[proflex-npm] Downloading ${asset}`);
   await fetchToFile(`${baseUrl}/${asset}`, assetPath);
   await fetchToFile(`${baseUrl}/checksums.txt`, checksumsPath);
   await fetchToFile(`${baseUrl}/checksums.txt.sig`, checksumsSigPath);
@@ -211,7 +211,7 @@ async function main() {
     run("tar", ["-xzf", assetPath, "-C", extractDir]);
   }
 
-  const binaryName = platform === "windows" ? "authmux.exe" : "authmux";
+  const binaryName = platform === "windows" ? "proflex.exe" : "proflex";
   const foundBinary = findBinary(extractDir, binaryName);
   if (!foundBinary) {
     throw new Error(`Unable to find ${binaryName} in extracted archive`);
@@ -225,10 +225,10 @@ async function main() {
     fs.chmodSync(destBinary, 0o755);
   }
 
-  console.log(`[authmux-npm] Installed ${binaryName} for ${platform}/${arch}`);
+  console.log(`[proflex-npm] Installed ${binaryName} for ${platform}/${arch}`);
 }
 
 main().catch((err) => {
-  console.error(`[authmux-npm] Install failed: ${err.message}`);
+  console.error(`[proflex-npm] Install failed: ${err.message}`);
   process.exit(1);
 });

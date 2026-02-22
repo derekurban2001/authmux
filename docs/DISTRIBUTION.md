@@ -1,8 +1,8 @@
-# Distribution and Release Channels
+# Distribution and Release
 
-AuthMux releases are built from a Git tag (`vX.Y.Z`) and published through GitHub Actions.
+Proflex releases are built from a Git tag (`vX.Y.Z`) and published through GitHub Actions.
 
-## What release workflow does
+## What the release workflow does
 
 The release workflow (`.github/workflows/release.yml`) performs:
 
@@ -10,32 +10,12 @@ The release workflow (`.github/workflows/release.yml`) performs:
 2. Publish release archives and `checksums.txt`.
 3. Sign `checksums.txt` with Sigstore/cosign (keyless OIDC).
 4. Upload `checksums.txt.sig` and `checksums.txt.pem` to the release.
-5. Generate package-manager manifests:
-   - Homebrew formula
-   - Winget manifests
-   - Scoop manifest
-   - Chocolatey package files
-6. Publish npm package `@authmux/cli` when `NPM_TOKEN` is configured.
-
-Generated manifests are attached to each release under `package-manifests/`.
+5. Publish npm package `@proflex/cli` when `NPM_TOKEN` is configured.
 
 ## Required secrets
 
 - `GITHUB_TOKEN` (provided by GitHub Actions)
-- `NPM_TOKEN` (optional, required to publish `@authmux/cli`)
-- `HOMEBREW_TAP_TOKEN` (optional, push formula updates to tap repo)
-- `SCOOP_BUCKET_TOKEN` (optional, push scoop manifest updates)
-- `WINGET_TOKEN` (optional, open winget PRs from automation)
-- `CHOCOLATEY_API_KEY` (optional, publish package to Chocolatey)
-
-## Optional repository variables
-
-- `HOMEBREW_TAP_REPO` (for example `derekurban2001/homebrew-tap`)
-- `SCOOP_BUCKET_REPO` (for example `derekurban2001/scoop-bucket`)
-- `WINGET_REPO` (default: `microsoft/winget-pkgs`)
-- `AUTHMUX_WINGET_PACKAGE_ID` (default: `DerekUrban.AuthMux`)
-
-Chocolatey publish runs in a dedicated Windows job when `CHOCOLATEY_API_KEY` is set.
+- `NPM_TOKEN` (optional, required to publish `@proflex/cli`)
 
 ## Installer trust model
 
@@ -46,5 +26,5 @@ Installers verify:
 
 Defaults:
 
-- Signature verification enabled (`AUTHMUX_VERIFY_SIGNATURES=1`)
-- Source fallback disabled (`AUTHMUX_ALLOW_SOURCE_FALLBACK=0`)
+- Signature verification enabled (`PROFLEX_VERIFY_SIGNATURES=1`)
+- Source fallback disabled (`PROFLEX_ALLOW_SOURCE_FALLBACK=0`)

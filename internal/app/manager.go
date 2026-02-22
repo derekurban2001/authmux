@@ -8,11 +8,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
-	"github.com/derekurban2001/authmux/internal/adapters"
-	"github.com/derekurban2001/authmux/internal/store"
+	"github.com/derekurban2001/proflex/internal/adapters"
+	"github.com/derekurban2001/proflex/internal/store"
 )
 
 type ExitCodeError struct {
@@ -27,14 +26,6 @@ type StatusRow struct {
 	Profile store.Profile   `json:"profile"`
 	Status  adapters.Status `json:"status"`
 	Error   string          `json:"error,omitempty"`
-}
-
-type DoctorReport struct {
-	RootDir       string              `json:"root_dir"`
-	ToolBinaries  map[store.Tool]bool `json:"tool_binaries"`
-	ProfilesTotal int                 `json:"profiles_total"`
-	MissingDirs   []string            `json:"missing_profile_dirs"`
-	BadDefaults   []string            `json:"bad_defaults"`
 }
 
 type Manager struct {
@@ -189,24 +180,6 @@ func (m *Manager) RemoveProfile(tool store.Tool, name string, purge bool) error 
 	return m.Save(st)
 }
 
-func (m *Manager) LoginProfile(ctx context.Context, profile store.Profile) error {
-	adapter, err := adapters.Get(profile.Tool)
-	if err != nil {
-		return err
-	}
-	cmd := adapter.LoginCommand(profile.Dir)
-	return runInteractive(ctx, cmd)
-}
-
-func (m *Manager) LogoutProfile(ctx context.Context, profile store.Profile) error {
-	adapter, err := adapters.Get(profile.Tool)
-	if err != nil {
-		return err
-	}
-	cmd := adapter.LogoutCommand(profile.Dir)
-	return runInteractive(ctx, cmd)
-}
-
 func (m *Manager) RunTool(ctx context.Context, profile store.Profile, args []string) error {
 	adapter, err := adapters.Get(profile.Tool)
 	if err != nil {
@@ -244,42 +217,6 @@ func (m *Manager) StatusRows(ctx context.Context, filterTool *store.Tool) ([]Sta
 		rows = append(rows, row)
 	}
 	return rows, nil
-}
-
-func (m *Manager) Doctor() (DoctorReport, error) {
-	st, err := m.Load()
-	if err != nil {
-		return DoctorReport{}, err
-	}
-	rep := DoctorReport{
-		RootDir:      m.Root(),
-		ToolBinaries: map[store.Tool]bool{},
-		MissingDirs:  []string{},
-		BadDefaults:  []string{},
-	}
-	for _, t := range store.SupportedTools {
-		ad, _ := adapters.Get(t)
-		_, err := exec.LookPath(ad.Binary())
-		rep.ToolBinaries[t] = err == nil
-	}
-	rep.ProfilesTotal = len(st.Profiles)
-	for _, p := range st.Profiles {
-		if _, err := os.Stat(p.Dir); err != nil {
-			rep.MissingDirs = append(rep.MissingDirs, fmt.Sprintf("%s/%s -> %s", p.Tool, p.Name, p.Dir))
-		}
-	}
-	for tool, def := range st.Defaults {
-		if strings.TrimSpace(def) == "" {
-			rep.BadDefaults = append(rep.BadDefaults, fmt.Sprintf("%s has empty default", tool))
-			continue
-		}
-		if _, p := store.FindProfile(st, tool, def); p == nil {
-			rep.BadDefaults = append(rep.BadDefaults, fmt.Sprintf("%s default %q not found", tool, def))
-		}
-	}
-	sort.Strings(rep.MissingDirs)
-	sort.Strings(rep.BadDefaults)
-	return rep, nil
 }
 
 func runInteractive(ctx context.Context, cmd *exec.Cmd) error {

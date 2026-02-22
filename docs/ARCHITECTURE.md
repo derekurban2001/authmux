@@ -1,8 +1,8 @@
-# AuthMux Architecture
+# Proflex Architecture
 
-AuthMux has four core layers:
+Proflex has three core layers:
 
-1. **CLI layer (`cmd/authmux`)**
+1. **CLI layer (`internal/cli`)**
    - Parses commands/flags and dispatches to app logic.
 2. **App layer (`internal/app`)**
    - Implements profile lifecycle and orchestration.
@@ -23,20 +23,9 @@ AuthMux has four core layers:
 
 ## Runtime model
 
-- `authmux run ...` resolves tool + profile context.
+- `proflex run ...` resolves tool + profile context.
 - Adapter injects environment variable for that profile directory.
-- Tool is launched normally (`claude` or `codex`) with isolated auth context.
-
-## TUI model
-
-The TUI (`internal/tui`) wraps app actions:
-
-- profile selection
-- login/logout
-- launch
-- default selection
-- profile add/remove
-- shim installation
+- Tool is launched normally (`claude` or `codex`) with isolated config context.
 
 ## Shims
 
@@ -48,5 +37,5 @@ The TUI (`internal/tui`) wraps app actions:
 Each shim executes:
 
 ```bash
-authmux run <tool> <profile> -- "$@"
+proflex run <tool> <profile> -- "$@"
 ```

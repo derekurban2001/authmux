@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/derekurban2001/authmux/internal/store"
+	"github.com/derekurban2001/proflex/internal/store"
 )
 
 type Status struct {
@@ -21,8 +21,7 @@ type Status struct {
 type Adapter interface {
 	Tool() store.Tool
 	Binary() string
-	LoginCommand(profileDir string) *exec.Cmd
-	LogoutCommand(profileDir string) *exec.Cmd
+	EnvVar() string
 	RunCommand(profileDir string, args []string) *exec.Cmd
 	Status(ctx context.Context, profileDir string) (Status, error)
 }
@@ -55,19 +54,12 @@ type Claude struct{}
 
 func (Claude) Tool() store.Tool { return store.ToolClaude }
 func (Claude) Binary() string   { return "claude" }
+func (Claude) EnvVar() string   { return "CLAUDE_CONFIG_DIR" }
 
 func (c Claude) withEnv(profileDir string, args ...string) *exec.Cmd {
 	cmd := exec.Command(c.Binary(), args...)
-	cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+profileDir)
+	cmd.Env = append(os.Environ(), c.EnvVar()+"="+profileDir)
 	return cmd
-}
-
-func (c Claude) LoginCommand(profileDir string) *exec.Cmd {
-	return c.withEnv(profileDir, "auth", "login")
-}
-
-func (c Claude) LogoutCommand(profileDir string) *exec.Cmd {
-	return c.withEnv(profileDir, "auth", "logout")
 }
 
 func (c Claude) RunCommand(profileDir string, args []string) *exec.Cmd {
@@ -78,9 +70,8 @@ func (c Claude) Status(ctx context.Context, profileDir string) (Status, error) {
 	if err := ensureBinary(c.Binary()); err != nil {
 		return Status{}, err
 	}
-	cmd := c.withEnv(profileDir, "auth", "status", "--json")
-	cmd = exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
-	cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+profileDir)
+	cmd := exec.CommandContext(ctx, c.Binary(), "auth", "status", "--json")
+	cmd.Env = append(os.Environ(), c.EnvVar()+"="+profileDir)
 	out, err := runCombined(ctx, cmd)
 	if err != nil {
 		return Status{}, err
@@ -99,19 +90,12 @@ type Codex struct{}
 
 func (Codex) Tool() store.Tool { return store.ToolCodex }
 func (Codex) Binary() string   { return "codex" }
+func (Codex) EnvVar() string   { return "CODEX_HOME" }
 
 func (c Codex) withEnv(profileDir string, args ...string) *exec.Cmd {
 	cmd := exec.Command(c.Binary(), args...)
-	cmd.Env = append(os.Environ(), "CODEX_HOME="+profileDir)
+	cmd.Env = append(os.Environ(), c.EnvVar()+"="+profileDir)
 	return cmd
-}
-
-func (c Codex) LoginCommand(profileDir string) *exec.Cmd {
-	return c.withEnv(profileDir, "login")
-}
-
-func (c Codex) LogoutCommand(profileDir string) *exec.Cmd {
-	return c.withEnv(profileDir, "logout")
 }
 
 func (c Codex) RunCommand(profileDir string, args []string) *exec.Cmd {
@@ -122,9 +106,8 @@ func (c Codex) Status(ctx context.Context, profileDir string) (Status, error) {
 	if err := ensureBinary(c.Binary()); err != nil {
 		return Status{}, err
 	}
-	cmd := c.withEnv(profileDir, "login", "status")
-	cmd = exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
-	cmd.Env = append(os.Environ(), "CODEX_HOME="+profileDir)
+	cmd := exec.CommandContext(ctx, c.Binary(), "login", "status")
+	cmd.Env = append(os.Environ(), c.EnvVar()+"="+profileDir)
 	out, err := runCombined(ctx, cmd)
 	low := strings.ToLower(out)
 	if strings.Contains(low, "not logged") || strings.Contains(low, "logged out") {
@@ -135,9 +118,6 @@ func (c Codex) Status(ctx context.Context, profileDir string) (Status, error) {
 	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
-		if strings.Contains(low, "not logged") {
-			return Status{LoggedIn: false, Raw: out}, nil
-		}
 		return Status{LoggedIn: false, Raw: out}, nil
 	}
 	return Status{}, err

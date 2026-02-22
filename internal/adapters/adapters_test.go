@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/derekurban2001/authmux/internal/store"
+	"github.com/derekurban2001/proflex/internal/store"
 )
 
 func hasEnvPrefix(env []string, prefix string) bool {
@@ -18,12 +18,19 @@ func hasEnvPrefix(env []string, prefix string) bool {
 
 func TestClaudeCommandEnvironment(t *testing.T) {
 	var a Claude
-	cmd := a.LoginCommand("/tmp/claude-p")
+	cmd := a.RunCommand("/tmp/claude-p", []string{"auth", "login"})
 	if got := cmd.Args; len(got) < 3 || got[0] != "claude" || got[1] != "auth" || got[2] != "login" {
-		t.Fatalf("unexpected login args: %#v", got)
+		t.Fatalf("unexpected run args: %#v", got)
 	}
 	if !hasEnvPrefix(cmd.Env, "CLAUDE_CONFIG_DIR=/tmp/claude-p") {
 		t.Fatalf("expected CLAUDE_CONFIG_DIR env var")
+	}
+}
+
+func TestClaudeEnvVar(t *testing.T) {
+	var a Claude
+	if a.EnvVar() != "CLAUDE_CONFIG_DIR" {
+		t.Fatalf("unexpected env var: %s", a.EnvVar())
 	}
 }
 
@@ -35,6 +42,13 @@ func TestCodexCommandEnvironment(t *testing.T) {
 	}
 	if !hasEnvPrefix(cmd.Env, "CODEX_HOME=/tmp/codex-p") {
 		t.Fatalf("expected CODEX_HOME env var")
+	}
+}
+
+func TestCodexEnvVar(t *testing.T) {
+	var a Codex
+	if a.EnvVar() != "CODEX_HOME" {
+		t.Fatalf("unexpected env var: %s", a.EnvVar())
 	}
 }
 

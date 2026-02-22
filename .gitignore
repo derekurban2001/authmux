@@ -1,10 +1,10 @@
 # binaries
-/authmux
+/proflex
 /bin/
 /dist/
-/packaging/npm-authmux-cli/runtime/*
-!/packaging/npm-authmux-cli/runtime/.gitkeep
-/packaging/npm-authmux-cli/*.tgz
+/packaging/npm-proflex-cli/runtime/*
+!/packaging/npm-proflex-cli/runtime/.gitkeep
+/packaging/npm-proflex-cli/*.tgz
 
 # go
 *.test
@@ -12,7 +12,7 @@
 coverage.out
 
 # local state
-.authmux/
+.proflex/
 
 # editor
 .DS_Store

@@ -1,15 +1,15 @@
 version: 2
 
-project_name: authmux
+project_name: proflex
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: authmux
+  - id: proflex
     main: .
-    binary: authmux
+    binary: proflex
     env:
       - CGO_ENABLED=0
     goos:
@@ -21,9 +21,9 @@ builds:
       - arm64
 
 archives:
-  - id: authmux
+  - id: proflex
     ids:
-      - authmux
+      - proflex
     formats:
       - tar.gz
     format_overrides:

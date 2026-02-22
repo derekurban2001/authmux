@@ -43,14 +43,14 @@ type Store struct {
 }
 
 func DefaultRoot() (string, error) {
-	if custom := strings.TrimSpace(os.Getenv("AUTHMUX_HOME")); custom != "" {
+	if custom := strings.TrimSpace(os.Getenv("PROFLEX_HOME")); custom != "" {
 		return custom, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".authmux"), nil
+	return filepath.Join(home, ".proflex"), nil
 }
 
 func New(root string) (*Store, error) {

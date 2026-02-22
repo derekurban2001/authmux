@@ -1,12 +1,12 @@
-# Contributing to AuthMux
+# Contributing to Proflex
 
 Thanks for your interest in contributing.
 
 ## Development setup
 
 ```bash
-git clone https://github.com/derekurban2001/authmux.git
-cd authmux
+git clone https://github.com/derekurban2001/proflex.git
+cd proflex
 go mod tidy
 go test ./...
 ```
@@ -14,8 +14,8 @@ go test ./...
 ## Build locally
 
 ```bash
-go build -o authmux .
-./authmux --help
+go build -o proflex .
+./proflex --help
 ```
 
 ## Run checks before opening a PR
@@ -28,12 +28,11 @@ go test ./...
 
 ## Project structure
 
-- `cmd/authmux`: CLI command wiring
+- `internal/cli`: CLI command dispatch and output
 - `internal/store`: state/profile persistence
 - `internal/adapters`: tool-specific integrations (Claude/Codex)
 - `internal/app`: core profile management logic
 - `internal/shim`: generated launcher script logic
-- `internal/tui`: Bubble Tea terminal UI
 
 ## Contribution guidelines
 

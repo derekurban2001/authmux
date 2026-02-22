@@ -1,34 +1,34 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$Repo = "derekurban2001/authmux"
-$ModulePath = "github.com/derekurban2001/authmux"
-$BinaryBase = "authmux"
-$BinaryName = "authmux.exe"
+$Repo = "derekurban2001/proflex"
+$ModulePath = "github.com/derekurban2001/proflex"
+$BinaryBase = "proflex"
+$BinaryName = "proflex.exe"
 
-$InstallDir = if ($env:AUTHMUX_INSTALL_DIR) { $env:AUTHMUX_INSTALL_DIR } else { Join-Path $HOME ".local\bin" }
-$Version = if ($env:AUTHMUX_VERSION) { $env:AUTHMUX_VERSION } else { "latest" }
-$AutoPathRaw = if ($env:AUTHMUX_AUTO_PATH) { $env:AUTHMUX_AUTO_PATH } else { "1" }
-$VerifySignaturesRaw = if ($env:AUTHMUX_VERIFY_SIGNATURES) { $env:AUTHMUX_VERIFY_SIGNATURES } else { "1" }
-$AllowSourceFallbackRaw = if ($env:AUTHMUX_ALLOW_SOURCE_FALLBACK) { $env:AUTHMUX_ALLOW_SOURCE_FALLBACK } else { "0" }
-$AutoInstallGoRaw = if ($env:AUTHMUX_AUTO_INSTALL_GO) { $env:AUTHMUX_AUTO_INSTALL_GO } else { "1" }
-$CosignVersion = if ($env:AUTHMUX_COSIGN_VERSION) { $env:AUTHMUX_COSIGN_VERSION } else { "v2.5.3" }
-$CosignIdentityRegex = if ($env:AUTHMUX_COSIGN_IDENTITY_RE) { $env:AUTHMUX_COSIGN_IDENTITY_RE } else { "^https://github.com/$Repo/.github/workflows/release.yml@refs/tags/.*$" }
-$CosignOidcIssuer = if ($env:AUTHMUX_COSIGN_OIDC_ISSUER) { $env:AUTHMUX_COSIGN_OIDC_ISSUER } else { "https://token.actions.githubusercontent.com" }
+$InstallDir = if ($env:PROFLEX_INSTALL_DIR) { $env:PROFLEX_INSTALL_DIR } else { Join-Path $HOME ".local\bin" }
+$Version = if ($env:PROFLEX_VERSION) { $env:PROFLEX_VERSION } else { "latest" }
+$AutoPathRaw = if ($env:PROFLEX_AUTO_PATH) { $env:PROFLEX_AUTO_PATH } else { "1" }
+$VerifySignaturesRaw = if ($env:PROFLEX_VERIFY_SIGNATURES) { $env:PROFLEX_VERIFY_SIGNATURES } else { "1" }
+$AllowSourceFallbackRaw = if ($env:PROFLEX_ALLOW_SOURCE_FALLBACK) { $env:PROFLEX_ALLOW_SOURCE_FALLBACK } else { "0" }
+$AutoInstallGoRaw = if ($env:PROFLEX_AUTO_INSTALL_GO) { $env:PROFLEX_AUTO_INSTALL_GO } else { "1" }
+$CosignVersion = if ($env:PROFLEX_COSIGN_VERSION) { $env:PROFLEX_COSIGN_VERSION } else { "v2.5.3" }
+$CosignIdentityRegex = if ($env:PROFLEX_COSIGN_IDENTITY_RE) { $env:PROFLEX_COSIGN_IDENTITY_RE } else { "^https://github.com/$Repo/.github/workflows/release.yml@refs/tags/.*$" }
+$CosignOidcIssuer = if ($env:PROFLEX_COSIGN_OIDC_ISSUER) { $env:PROFLEX_COSIGN_OIDC_ISSUER } else { "https://token.actions.githubusercontent.com" }
 
 function Write-Log {
   param([string]$Message)
-  Write-Host "[authmux-install] $Message"
+  Write-Host "[proflex-install] $Message"
 }
 
 function Write-WarnMessage {
   param([string]$Message)
-  Write-Warning "[authmux-install] $Message"
+  Write-Warning "[proflex-install] $Message"
 }
 
 function Fail {
   param([string]$Message)
-  throw "[authmux-install] ERROR: $Message"
+  throw "[proflex-install] ERROR: $Message"
 }
 
 function Test-Truthy {
@@ -203,7 +203,7 @@ function Verify-ChecksumsSignature {
   )
 
   if (-not (Test-Truthy $VerifySignaturesRaw)) {
-    Write-WarnMessage "Signature verification disabled via AUTHMUX_VERIFY_SIGNATURES=0"
+    Write-WarnMessage "Signature verification disabled via PROFLEX_VERIFY_SIGNATURES=0"
     return
   }
 
@@ -259,7 +259,7 @@ function Get-LatestTag {
 }
 
 function New-TempDir {
-  $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("authmux-install-" + [System.Guid]::NewGuid().ToString("N"))
+  $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("proflex-install-" + [System.Guid]::NewGuid().ToString("N"))
   New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
   return $tempDir
 }
@@ -296,7 +296,7 @@ function Install-FromRelease {
           -SignaturePath $checksumsSigPath `
           -CertificatePath $checksumsCertPath
       } else {
-        Write-WarnMessage "Signature verification disabled via AUTHMUX_VERIFY_SIGNATURES=0"
+        Write-WarnMessage "Signature verification disabled via PROFLEX_VERIFY_SIGNATURES=0"
       }
 
       foreach ($asset in $assets) {
@@ -461,7 +461,7 @@ function Main {
         Write-WarnMessage "Could not resolve latest release tag; using go install fallback"
         $resolvedVersion = $null
       } else {
-        Fail "Could not resolve latest release tag and source fallback is disabled (set AUTHMUX_ALLOW_SOURCE_FALLBACK=1 to enable)."
+        Fail "Could not resolve latest release tag and source fallback is disabled (set PROFLEX_ALLOW_SOURCE_FALLBACK=1 to enable)."
       }
     } else {
       $resolvedVersion = $latest
@@ -477,7 +477,7 @@ function Main {
       Write-WarnMessage "Release install failed; using go install fallback"
       Install-WithGo -RequestedVersion $Version
     } else {
-      Fail "Release install failed and source fallback is disabled (set AUTHMUX_ALLOW_SOURCE_FALLBACK=1 to enable)."
+      Fail "Release install failed and source fallback is disabled (set PROFLEX_ALLOW_SOURCE_FALLBACK=1 to enable)."
     }
   }
 

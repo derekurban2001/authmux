@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-AuthMux is pre-1.0. Please use the latest `main` release/commit.
+Proflex is pre-1.0. Please use the latest `main` release/commit.
 
 ## Reporting a vulnerability
 
@@ -22,6 +22,6 @@ Include:
 
 ## Security notes
 
-- AuthMux stores profile metadata under `~/.authmux` (or `AUTHMUX_HOME`).
+- Proflex stores profile metadata under `~/.proflex` (or `PROFLEX_HOME`).
 - Auth tokens remain managed by Claude/Codex in their own storage contexts.
 - Treat per-profile auth directories as sensitive system state.

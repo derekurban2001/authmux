@@ -2,7 +2,7 @@
 
 ## Our Pledge
 
-We are committed to making participation in AuthMux welcoming and harassment-free for everyone.
+We are committed to making participation in Proflex welcoming and harassment-free for everyone.
 
 ## Expected Behavior
 
