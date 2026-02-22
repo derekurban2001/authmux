@@ -91,6 +91,15 @@ function run(cmd, args) {
   if (res.status !== 0) throw new Error(`${cmd} exited with code ${res.status}`);
 }
 
+function defaultCosignIdentityRegex(repo) {
+  const officialRepo = "derekurban/proflex-cli";
+  const legacyRepo = "derekurban2001/proflex-cli";
+  if (repo === officialRepo || repo === legacyRepo) {
+    return "^https://github.com/(derekurban/proflex-cli|derekurban2001/proflex-cli)/.github/workflows/release.yml@refs/tags/.*$";
+  }
+  return `^https://github.com/${repo}/.github/workflows/release.yml@refs/tags/.*$`;
+}
+
 async function ensureCosign(tempDir, platform, arch) {
   const existing = cp.spawnSync("cosign", ["version"], { stdio: "ignore" });
   if (!existing.error && existing.status === 0) {
@@ -117,7 +126,7 @@ async function verifyChecksumsSignature(tempDir, platform, arch, checksumsPath, 
   }
   const identityRe =
     process.env.PROFLEX_COSIGN_IDENTITY_RE ||
-    `^https://github.com/${repo}/.github/workflows/release.yml@refs/tags/.*$`;
+    defaultCosignIdentityRegex(repo);
   const oidcIssuer = process.env.PROFLEX_COSIGN_OIDC_ISSUER || "https://token.actions.githubusercontent.com";
   const cosignBin = await ensureCosign(tempDir, platform, arch);
   run(cosignBin, [

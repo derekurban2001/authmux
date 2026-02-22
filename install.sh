@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="derekurban/proflex-cli"
+REPO="${PROFLEX_REPO:-derekurban/proflex-cli}"
+OFFICIAL_REPO="derekurban/proflex-cli"
+LEGACY_REPO="derekurban2001/proflex-cli"
 BINARY_NAME="proflex"
 INSTALL_DIR="${PROFLEX_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${PROFLEX_VERSION:-latest}" # latest | vX.Y.Z
@@ -9,7 +11,12 @@ AUTO_PATH="${PROFLEX_AUTO_PATH:-1}" # 1/true/yes/on -> persist PATH update
 VERIFY_SIGNATURES="${PROFLEX_VERIFY_SIGNATURES:-1}" # 1/true/yes/on -> enforce cosign verification
 ALLOW_SOURCE_FALLBACK="${PROFLEX_ALLOW_SOURCE_FALLBACK:-0}" # 1/true/yes/on -> allow go install fallback
 COSIGN_VERSION="${PROFLEX_COSIGN_VERSION:-v2.5.3}"
-COSIGN_IDENTITY_RE="${PROFLEX_COSIGN_IDENTITY_RE:-^https://github.com/${REPO}/.github/workflows/release.yml@refs/tags/.*$}"
+if [[ "$REPO" == "$OFFICIAL_REPO" || "$REPO" == "$LEGACY_REPO" ]]; then
+  DEFAULT_COSIGN_IDENTITY_RE="^https://github.com/(derekurban/proflex-cli|derekurban2001/proflex-cli)/.github/workflows/release.yml@refs/tags/.*$"
+else
+  DEFAULT_COSIGN_IDENTITY_RE="^https://github.com/${REPO}/.github/workflows/release.yml@refs/tags/.*$"
+fi
+COSIGN_IDENTITY_RE="${PROFLEX_COSIGN_IDENTITY_RE:-$DEFAULT_COSIGN_IDENTITY_RE}"
 COSIGN_OIDC_ISSUER="${PROFLEX_COSIGN_OIDC_ISSUER:-https://token.actions.githubusercontent.com}"
 
 log() { printf "[proflex-install] %s\n" "$*"; }

@@ -1,7 +1,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$Repo = "derekurban/proflex-cli"
+$Repo = if ($env:PROFLEX_REPO) { $env:PROFLEX_REPO } else { "derekurban/proflex-cli" }
+$OfficialRepo = "derekurban/proflex-cli"
+$LegacyRepo = "derekurban2001/proflex-cli"
 $ModulePath = "github.com/derekurban/proflex-cli"
 $BinaryBase = "proflex"
 $BinaryName = "proflex.exe"
@@ -13,7 +15,12 @@ $VerifySignaturesRaw = if ($env:PROFLEX_VERIFY_SIGNATURES) { $env:PROFLEX_VERIFY
 $AllowSourceFallbackRaw = if ($env:PROFLEX_ALLOW_SOURCE_FALLBACK) { $env:PROFLEX_ALLOW_SOURCE_FALLBACK } else { "0" }
 $AutoInstallGoRaw = if ($env:PROFLEX_AUTO_INSTALL_GO) { $env:PROFLEX_AUTO_INSTALL_GO } else { "1" }
 $CosignVersion = if ($env:PROFLEX_COSIGN_VERSION) { $env:PROFLEX_COSIGN_VERSION } else { "v2.5.3" }
-$CosignIdentityRegex = if ($env:PROFLEX_COSIGN_IDENTITY_RE) { $env:PROFLEX_COSIGN_IDENTITY_RE } else { "^https://github.com/$Repo/.github/workflows/release.yml@refs/tags/.*$" }
+$DefaultCosignIdentityRegex = if ($Repo -eq $OfficialRepo -or $Repo -eq $LegacyRepo) {
+  "^https://github.com/(derekurban/proflex-cli|derekurban2001/proflex-cli)/.github/workflows/release.yml@refs/tags/.*$"
+} else {
+  "^https://github.com/$Repo/.github/workflows/release.yml@refs/tags/.*$"
+}
+$CosignIdentityRegex = if ($env:PROFLEX_COSIGN_IDENTITY_RE) { $env:PROFLEX_COSIGN_IDENTITY_RE } else { $DefaultCosignIdentityRegex }
 $CosignOidcIssuer = if ($env:PROFLEX_COSIGN_OIDC_ISSUER) { $env:PROFLEX_COSIGN_OIDC_ISSUER } else { "https://token.actions.githubusercontent.com" }
 
 function Write-Log {
