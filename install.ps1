@@ -1,8 +1,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$Repo = "derekurban2001/proflex"
-$ModulePath = "github.com/derekurban2001/proflex"
+$Repo = "derekurban2001/proflex-cli"
+$ModulePath = "github.com/derekurban2001/proflex-cli"
 $BinaryBase = "proflex"
 $BinaryName = "proflex.exe"
 

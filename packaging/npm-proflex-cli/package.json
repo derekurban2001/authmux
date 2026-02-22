@@ -1,15 +1,15 @@
 {
-  "name": "@proflex/cli",
+  "name": "@derekurban2001/proflex-cli",
   "version": "0.0.0-dev",
   "description": "Proflex CLI binary installer and launcher",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/derekurban2001/proflex.git"
+    "url": "git+https://github.com/derekurban2001/proflex-cli.git"
   },
-  "homepage": "https://github.com/derekurban2001/proflex",
+  "homepage": "https://github.com/derekurban2001/proflex-cli",
   "bugs": {
-    "url": "https://github.com/derekurban2001/proflex/issues"
+    "url": "https://github.com/derekurban2001/proflex-cli/issues"
   },
   "bin": {
     "proflex": "bin/proflex.js"

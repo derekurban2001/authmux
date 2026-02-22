@@ -10,8 +10,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/derekurban2001/proflex/internal/adapters"
-	"github.com/derekurban2001/proflex/internal/store"
+	"github.com/derekurban2001/proflex-cli/internal/adapters"
+	"github.com/derekurban2001/proflex-cli/internal/store"
 )
 
 type ExitCodeError struct {

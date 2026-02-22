@@ -5,7 +5,7 @@ Thanks for your interest in contributing.
 ## Development setup
 
 ```bash
-git clone https://github.com/derekurban2001/proflex.git
+git clone https://github.com/derekurban2001/proflex-cli.git
 cd proflex
 go mod tidy
 go test ./...

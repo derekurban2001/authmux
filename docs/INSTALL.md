@@ -3,13 +3,13 @@
 ## One-command install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/derekurban2001/proflex/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/derekurban2001/proflex-cli/main/install.sh | bash
 ```
 
 For Windows PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/derekurban2001/proflex/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/derekurban2001/proflex-cli/main/install.ps1 | iex
 ```
 
 This installer will:
@@ -36,15 +36,15 @@ Environment variables:
 ## npm / pnpm global install
 
 ```bash
-npm i -g @proflex/cli
+npm i -g @derekurban2001/proflex-cli
 # or
-pnpm add -g @proflex/cli
+pnpm add -g @derekurban2001/proflex-cli
 ```
 
 ## From source
 
 ```bash
-git clone https://github.com/derekurban2001/proflex.git
+git clone https://github.com/derekurban2001/proflex-cli.git
 cd proflex
 go build -o proflex .
 mv proflex ~/.local/bin/

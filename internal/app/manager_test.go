@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/derekurban2001/proflex/internal/store"
+	"github.com/derekurban2001/proflex-cli/internal/store"
 )
 
 func newTestManager(t *testing.T) *Manager {

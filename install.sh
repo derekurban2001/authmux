@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="derekurban2001/proflex"
+REPO="derekurban2001/proflex-cli"
 BINARY_NAME="proflex"
 INSTALL_DIR="${PROFLEX_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${PROFLEX_VERSION:-latest}" # latest | vX.Y.Z
@@ -287,9 +287,9 @@ install_with_go() {
   need_cmd go
   log "Falling back to go install"
   if [[ "$version" == "latest" ]]; then
-    GO111MODULE=on go install "github.com/derekurban2001/proflex@latest"
+    GO111MODULE=on go install "github.com/derekurban2001/proflex-cli@latest"
   else
-    GO111MODULE=on go install "github.com/derekurban2001/proflex@${version}"
+    GO111MODULE=on go install "github.com/derekurban2001/proflex-cli@${version}"
   fi
   local gobin
   gobin="$(go env GOBIN)"

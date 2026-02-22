@@ -160,7 +160,7 @@ async function main() {
     return;
   }
 
-  const repo = process.env.PROFLEX_REPO || "derekurban2001/proflex";
+  const repo = process.env.PROFLEX_REPO || "derekurban2001/proflex-cli";
   const platform = mapPlatform();
   const arch = mapArch();
   const extension = platform === "windows" ? "zip" : "tar.gz";

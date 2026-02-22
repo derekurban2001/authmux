@@ -47,7 +47,7 @@ function main() {
 
   if (!fs.existsSync(bin)) {
     console.error("[proflex-npm] Proflex binary is missing for this platform.");
-    console.error("[proflex-npm] Reinstall with: npm i -g @proflex/cli");
+    console.error("[proflex-npm] Reinstall with: npm i -g @derekurban2001/proflex-cli");
     process.exit(1);
   }
 
