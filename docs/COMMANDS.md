@@ -33,6 +33,14 @@ Remove profile from registry.
 
 `--purge` also deletes profile directory.
 
+## `proflex uninstall [--purge]`
+
+Uninstall Proflex from the local machine.
+
+- Removes the installed `proflex` binary when it can be resolved automatically.
+- Removes Proflex-generated shims by default.
+- `--purge` also removes Proflex state (`~/.proflex` or `PROFLEX_HOME`/`--root`).
+
 ## `proflex shim install [--dir <path>]`
 
 Generate launcher shims for all profiles.

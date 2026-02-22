@@ -55,3 +55,13 @@ mv proflex ~/.local/bin/
 ```bash
 proflex --help
 ```
+
+## Uninstall
+
+```bash
+proflex uninstall
+```
+
+Optional cleanup:
+
+- `proflex uninstall --purge` also removes local Proflex state (`~/.proflex`).

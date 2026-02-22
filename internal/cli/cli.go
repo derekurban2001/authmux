@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -44,6 +45,8 @@ func Run(args []string) int {
 		err = cmdAdd(rootDir, rest)
 	case "remove":
 		err = cmdRemove(rootDir, rest)
+	case "uninstall":
+		err = cmdUninstall(rootDir, rest)
 	case "list":
 		err = cmdList(rootDir, rest)
 	case "run":
@@ -80,6 +83,7 @@ func printHelp() {
 %s
   add <tool> <profile>          Create a new profile and install its shim
   remove <tool> <profile>       Remove a profile and its shim
+  uninstall [--purge]           Uninstall proflex from this machine
   list [--tool <t>] [--json]    List all profiles with auth status
   use <tool> <profile>          Set the default profile for a tool
   rename <tool> <old> <new>     Rename a profile
@@ -191,6 +195,72 @@ func cmdRemove(rootDir string, args []string) error {
 		fmt.Printf("   Profile directory purged from disk.\n")
 	}
 
+	return nil
+}
+
+// --- uninstall ---
+
+func cmdUninstall(rootDir string, args []string) error {
+	purge, args := extractBool(args, "--purge")
+
+	if hasHelp(args) {
+		fmt.Printf("Usage: proflex uninstall [--purge]\n\n")
+		fmt.Printf("  --purge  Remove profile state directory (~/.proflex)\n")
+		return nil
+	}
+	if len(args) > 0 {
+		return fmt.Errorf("unknown argument(s): %s", strings.Join(args, " "))
+	}
+
+	var summary []string
+
+	shimDir, err := shim.DefaultShimDir()
+	if err != nil {
+		return err
+	}
+	removed, err := shim.RemoveAll(shimDir)
+	if err != nil {
+		return err
+	}
+	summary = append(summary, fmt.Sprintf("Removed %d proflex shim(s) from %s", len(removed), shimDir))
+
+	if purge {
+		stateRoot, err := resolveRootDir(rootDir)
+		if err != nil {
+			return err
+		}
+		if err := os.RemoveAll(stateRoot); err != nil {
+			return fmt.Errorf("remove state dir %s: %w", stateRoot, err)
+		}
+		summary = append(summary, fmt.Sprintf("Removed state directory %s", stateRoot))
+	}
+
+	binCandidates := proflexBinaryCandidates()
+	binRemoved := []string{}
+	for _, candidate := range binCandidates {
+		removed, err := removeFileWithWindowsFallback(candidate)
+		if err != nil {
+			return fmt.Errorf("remove binary %s: %w", candidate, err)
+		}
+		if removed {
+			binRemoved = append(binRemoved, candidate)
+		}
+	}
+	if len(binRemoved) == 0 {
+		summary = append(summary, "Could not remove proflex binary automatically")
+	} else {
+		for _, path := range binRemoved {
+			summary = append(summary, "Removed binary "+path)
+		}
+	}
+
+	fmt.Printf("%s Uninstall complete\n", Green("✓"))
+	for _, line := range summary {
+		fmt.Printf("   - %s\n", line)
+	}
+	if len(binRemoved) == 0 {
+		fmt.Printf("   - %s\n", "If proflex is still on PATH, remove it manually from your install directory.")
+	}
 	return nil
 }
 
@@ -550,6 +620,98 @@ func resolveProflexBin() string {
 		return bin
 	}
 	return "proflex"
+}
+
+func resolveRootDir(rootDir string) (string, error) {
+	if strings.TrimSpace(rootDir) == "" {
+		return store.DefaultRoot()
+	}
+	abs := rootDir
+	if !filepath.IsAbs(rootDir) {
+		cwd, _ := os.Getwd()
+		abs = filepath.Join(cwd, rootDir)
+	}
+	return abs, nil
+}
+
+func proflexBinaryCandidates() []string {
+	var candidates []string
+
+	if exe, err := os.Executable(); err == nil && isProflexBinaryPath(exe) {
+		candidates = append(candidates, exe)
+	}
+	if lp, err := exec.LookPath("proflex"); err == nil && isProflexBinaryPath(lp) {
+		candidates = append(candidates, lp)
+	}
+	if lp, err := exec.LookPath("proflex.exe"); err == nil && isProflexBinaryPath(lp) {
+		candidates = append(candidates, lp)
+	}
+
+	home, err := os.UserHomeDir()
+	if err == nil && strings.TrimSpace(home) != "" {
+		installDir := os.Getenv("PROFLEX_INSTALL_DIR")
+		if strings.TrimSpace(installDir) == "" {
+			installDir = filepath.Join(home, ".local", "bin")
+		}
+		candidates = append(candidates,
+			filepath.Join(installDir, "proflex"),
+			filepath.Join(installDir, "proflex.exe"),
+		)
+	}
+
+	return uniquePaths(candidates)
+}
+
+func isProflexBinaryPath(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	return base == "proflex" || base == "proflex.exe"
+}
+
+func uniquePaths(paths []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if strings.TrimSpace(p) == "" {
+			continue
+		}
+		key := filepath.Clean(p)
+		if runtime.GOOS == "windows" {
+			key = strings.ToLower(key)
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, p)
+	}
+	return out
+}
+
+func removeFileWithWindowsFallback(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if info.IsDir() {
+		return false, nil
+	}
+
+	if err := os.Remove(path); err == nil {
+		return true, nil
+	} else if runtime.GOOS != "windows" {
+		return false, err
+	}
+
+	escaped := strings.ReplaceAll(path, `"`, `""`)
+	cmd := exec.Command("cmd", "/C", fmt.Sprintf(`ping 127.0.0.1 -n 2 >nul & del /f /q "%s"`, escaped))
+	if err := cmd.Start(); err != nil {
+		return false, err
+	}
+	_ = cmd.Process.Release()
+	return true, nil
 }
 
 // extractFlag extracts "--flag value" from args, returning the value and remaining args.

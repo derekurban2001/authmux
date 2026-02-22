@@ -1,6 +1,16 @@
-# Proflex
+<div align="center">
 
-A profile manager for **Claude Code** and **OpenAI Codex CLI**.
+<img src="./proflex_logo.png" alt="Profilex logo" width="220" />
+
+# Profilex
+
+Profile manager for **Claude Code** and **OpenAI Codex CLI**.
+
+[![Tests](https://img.shields.io/github/actions/workflow/status/derekurban2001/proflex/ci.yml?branch=main&style=for-the-badge&label=tests)](https://github.com/derekurban2001/proflex/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/derekurban2001/proflex?style=for-the-badge)](https://github.com/derekurban2001/proflex/releases)
+[![License](https://img.shields.io/github/license/derekurban2001/proflex?style=for-the-badge)](LICENSE)
+
+</div>
 
 Proflex gives each tool its own isolated config directory per profile, and generates shims like `claude-work` and `codex-personal` so you can switch between accounts instantly.
 
@@ -83,6 +93,7 @@ After creating a profile, just run the shim (e.g. `claude-work`). You'll be prom
 
 - `proflex add <tool> <profile>` — Create profile + install shim
 - `proflex remove <tool> <profile> [--purge]` — Remove profile + shim
+- `proflex uninstall [--purge]` — Uninstall proflex binary (and optionally local proflex state)
 - `proflex list [--tool claude|codex] [--json]` — List profiles with status
 - `proflex use <tool> <profile>` — Set default profile
 - `proflex rename <tool> <old> <new>` — Rename a profile
