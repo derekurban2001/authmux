@@ -117,6 +117,8 @@ profilex usage export --out ./public/local-unified-usage.json --deep
 
 This scans ProfileX-managed and stock Claude/Codex usage locations, normalizes events, maps them to profiles (or `default-*` buckets), and writes a single JSON bundle for ProfileX-UI.
 
+If `openclaw` is available, it also attempts to ingest `openclaw status --json --usage` into the unified bundle.
+
 ---
 
 ## Storage

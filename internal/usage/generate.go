@@ -73,6 +73,20 @@ func GenerateBundle(ctx context.Context, st *store.State, statePath string, opts
 	notes = append(notes, fmt.Sprintf("Files with read/parse failures: %d", parseFailures))
 	notes = append(notes, fmt.Sprintf("Malformed JSONL lines skipped: %d", malformedLines))
 
+	openclawEvents, openclawNotes, err := collectOpenClawEvents(ctx, opts.Timezone)
+	if err != nil {
+		notes = append(notes, fmt.Sprintf("OpenClaw usage collection error: %v", err))
+	} else {
+		if len(openclawEvents) > 0 {
+			events = append(events, openclawEvents...)
+		}
+		notes = append(notes, openclawNotes...)
+	}
+
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].TimestampUTC < events[j].TimestampUTC
+	})
+
 	bundle := &UnifiedLocalBundle{
 		SchemaVersion:  1,
 		GeneratedAtUTC: time.Now().UTC().Format(time.RFC3339),

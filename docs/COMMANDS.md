@@ -60,6 +60,8 @@ Remove one specific generated shim.
 
 Export a unified local usage bundle JSON that ProfileX-UI can ingest directly.
 
+If the `openclaw` binary is installed, ProfileX also attempts to pull OpenClaw usage via `openclaw status --json --usage` and includes it in the export.
+
 Defaults:
 
 - `--out ./public/local-unified-usage.json`

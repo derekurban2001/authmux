@@ -13,9 +13,10 @@ const (
 type Tool string
 
 const (
-	ToolClaude  Tool = "claude"
-	ToolCodex   Tool = "codex"
-	ToolUnknown Tool = "unknown"
+	ToolClaude   Tool = "claude"
+	ToolCodex    Tool = "codex"
+	ToolOpenClaw Tool = "openclaw"
+	ToolUnknown  Tool = "unknown"
 )
 
 type NormalizedEvent struct {
