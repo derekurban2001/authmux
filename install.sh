@@ -1,27 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="${PROFLEX_REPO:-derekurban/proflex-cli}"
-OFFICIAL_REPO="derekurban/proflex-cli"
-LEGACY_REPO="derekurban2001/proflex-cli"
-BINARY_NAME="proflex"
-INSTALL_DIR="${PROFLEX_INSTALL_DIR:-$HOME/.local/bin}"
-VERSION="${PROFLEX_VERSION:-latest}" # latest | vX.Y.Z
-AUTO_PATH="${PROFLEX_AUTO_PATH:-1}" # 1/true/yes/on -> persist PATH update
-VERIFY_SIGNATURES="${PROFLEX_VERIFY_SIGNATURES:-1}" # 1/true/yes/on -> enforce cosign verification
-ALLOW_SOURCE_FALLBACK="${PROFLEX_ALLOW_SOURCE_FALLBACK:-0}" # 1/true/yes/on -> allow go install fallback
-COSIGN_VERSION="${PROFLEX_COSIGN_VERSION:-v2.5.3}"
+REPO="${PROFILEX_REPO:-${PROFLEX_REPO:-derekurban/profilex-cli}}"
+MODULE_PATH="${PROFILEX_MODULE_PATH:-${PROFLEX_MODULE_PATH:-github.com/${REPO}}}"
+OFFICIAL_REPO="derekurban/profilex-cli"
+LEGACY_REPO="derekurban2001/profilex-cli"
+BINARY_NAME="profilex"
+OWNERSHIP_MARKER_MAGIC="profilex-owned-binary-v1"
+INSTALL_DIR="${PROFILEX_INSTALL_DIR:-${PROFLEX_INSTALL_DIR:-$HOME/.local/bin}}"
+VERSION="${PROFILEX_VERSION:-${PROFLEX_VERSION:-latest}}" # latest | vX.Y.Z
+AUTO_PATH="${PROFILEX_AUTO_PATH:-${PROFLEX_AUTO_PATH:-1}}" # 1/true/yes/on -> persist PATH update
+VERIFY_SIGNATURES="${PROFILEX_VERIFY_SIGNATURES:-${PROFLEX_VERIFY_SIGNATURES:-1}}" # 1/true/yes/on -> enforce cosign verification
+ALLOW_SOURCE_FALLBACK="${PROFILEX_ALLOW_SOURCE_FALLBACK:-${PROFLEX_ALLOW_SOURCE_FALLBACK:-0}}" # 1/true/yes/on -> allow go install fallback
+COSIGN_VERSION="${PROFILEX_COSIGN_VERSION:-${PROFLEX_COSIGN_VERSION:-v2.5.3}}"
 if [[ "$REPO" == "$OFFICIAL_REPO" || "$REPO" == "$LEGACY_REPO" ]]; then
-  DEFAULT_COSIGN_IDENTITY_RE="^https://github.com/(derekurban/proflex-cli|derekurban2001/proflex-cli)/.github/workflows/release.yml@refs/tags/.*$"
+  DEFAULT_COSIGN_IDENTITY_RE="^https://github.com/(derekurban/profilex-cli|derekurban2001/profilex-cli)/.github/workflows/release.yml@refs/tags/.*$"
 else
   DEFAULT_COSIGN_IDENTITY_RE="^https://github.com/${REPO}/.github/workflows/release.yml@refs/tags/.*$"
 fi
-COSIGN_IDENTITY_RE="${PROFLEX_COSIGN_IDENTITY_RE:-$DEFAULT_COSIGN_IDENTITY_RE}"
-COSIGN_OIDC_ISSUER="${PROFLEX_COSIGN_OIDC_ISSUER:-https://token.actions.githubusercontent.com}"
+COSIGN_IDENTITY_RE="${PROFILEX_COSIGN_IDENTITY_RE:-${PROFLEX_COSIGN_IDENTITY_RE:-$DEFAULT_COSIGN_IDENTITY_RE}}"
+COSIGN_OIDC_ISSUER="${PROFILEX_COSIGN_OIDC_ISSUER:-${PROFLEX_COSIGN_OIDC_ISSUER:-https://token.actions.githubusercontent.com}}"
 
-log() { printf "[proflex-install] %s\n" "$*"; }
-warn() { printf "[proflex-install] WARN: %s\n" "$*" >&2; }
-err() { printf "[proflex-install] ERROR: %s\n" "$*" >&2; exit 1; }
+log() { printf "[profilex-install] %s\n" "$*"; }
+warn() { printf "[profilex-install] WARN: %s\n" "$*" >&2; }
+err() { printf "[profilex-install] ERROR: %s\n" "$*" >&2; exit 1; }
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || err "Required command not found: $1"
@@ -55,7 +57,7 @@ default_profile_file() {
 persist_path_update() {
   local profile line marker
   profile="$(default_profile_file)"
-  marker="# Added by proflex installer"
+  marker="# Added by profilex installer"
   line="export PATH=\"${INSTALL_DIR}:\$PATH\""
 
   mkdir -p "$(dirname "$profile")"
@@ -71,12 +73,49 @@ persist_path_update() {
 }
 
 binary_filename_for_os() {
-  local os="$1"
-  if [[ "$os" == "windows" ]]; then
-    printf "%s.exe" "$BINARY_NAME"
+	local os="$1"
+	if [[ "$os" == "windows" ]]; then
+		printf "%s.exe" "$BINARY_NAME"
   else
     printf "%s" "$BINARY_NAME"
-  fi
+	fi
+}
+
+absolute_path() {
+	local path="$1"
+	if command -v realpath >/dev/null 2>&1; then
+		realpath "$path"
+		return 0
+	fi
+	local dir base
+	dir="$(cd "$(dirname "$path")" && pwd -P)"
+	base="$(basename "$path")"
+	printf "%s/%s" "$dir" "$base"
+}
+
+ownership_marker_path() {
+	local bin_path="$1"
+	local dir base
+	dir="$(dirname "$bin_path")"
+	base="$(basename "$bin_path")"
+	printf "%s/.%s.profilex-owner" "$dir" "$base"
+}
+
+write_ownership_marker() {
+	local bin_path="$1"
+	local marker
+	local normalized_bin
+	marker="$(ownership_marker_path "$bin_path")"
+	normalized_bin="$(absolute_path "$bin_path")"
+
+	cat >"$marker" <<EOF
+${OWNERSHIP_MARKER_MAGIC}
+path=${normalized_bin}
+repo=${REPO}
+installed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+EOF
+	chmod 0644 "$marker" || true
+	log "Wrote ownership marker ${marker}"
 }
 
 detect_os() {
@@ -157,7 +196,7 @@ ensure_cosign() {
 verify_checksums_signature() {
   local os="$1" arch="$2" tmpdir="$3" checksums_file="$4" sig_file="$5" cert_file="$6"
   if ! is_truthy "$VERIFY_SIGNATURES"; then
-    warn "Signature verification disabled via PROFLEX_VERIFY_SIGNATURES=0"
+    warn "Signature verification disabled via PROFILEX_VERIFY_SIGNATURES=0"
     return 0
   fi
 
@@ -245,7 +284,7 @@ install_from_release() {
       return 1
     fi
   else
-    warn "Signature verification disabled via PROFLEX_VERIFY_SIGNATURES=0"
+    warn "Signature verification disabled via PROFILEX_VERIFY_SIGNATURES=0"
   fi
 
   local expected_hash actual_hash
@@ -283,21 +322,22 @@ install_from_release() {
     cp "$found" "${tmpdir}/${bin_name}"
   fi
 
-  mkdir -p "$INSTALL_DIR"
-  install -m 0755 "${tmpdir}/${bin_name}" "${INSTALL_DIR}/${bin_name}"
-  log "Installed ${bin_name} to ${INSTALL_DIR}/${bin_name}"
-  return 0
+	mkdir -p "$INSTALL_DIR"
+	install -m 0755 "${tmpdir}/${bin_name}" "${INSTALL_DIR}/${bin_name}"
+	log "Installed ${bin_name} to ${INSTALL_DIR}/${bin_name}"
+	write_ownership_marker "${INSTALL_DIR}/${bin_name}"
+	return 0
 }
 
 install_with_go() {
   local os="$1" version="$2"
   need_cmd go
-  log "Falling back to go install"
-  if [[ "$version" == "latest" ]]; then
-    GO111MODULE=on go install "github.com/derekurban/proflex-cli@latest"
-  else
-    GO111MODULE=on go install "github.com/derekurban/proflex-cli@${version}"
-  fi
+	log "Falling back to go install"
+	if [[ "$version" == "latest" ]]; then
+		GO111MODULE=on go install "${MODULE_PATH}@latest"
+	else
+		GO111MODULE=on go install "${MODULE_PATH}@${version}"
+	fi
   local gobin
   gobin="$(go env GOBIN)"
   if [[ -z "$gobin" ]]; then
@@ -314,10 +354,11 @@ install_with_go() {
     err "go install completed but binary not found at ${gobin}/${bin_name}"
   fi
 
-  mkdir -p "$INSTALL_DIR"
-  cp "$src_bin" "${INSTALL_DIR}/${bin_name}"
-  chmod +x "${INSTALL_DIR}/${bin_name}"
-  log "Installed ${bin_name} to ${INSTALL_DIR}/${bin_name}"
+	mkdir -p "$INSTALL_DIR"
+	cp "$src_bin" "${INSTALL_DIR}/${bin_name}"
+	chmod +x "${INSTALL_DIR}/${bin_name}"
+	log "Installed ${bin_name} to ${INSTALL_DIR}/${bin_name}"
+	write_ownership_marker "${INSTALL_DIR}/${bin_name}"
 }
 
 main() {
@@ -332,7 +373,7 @@ main() {
       if is_truthy "$ALLOW_SOURCE_FALLBACK"; then
         warn "Could not resolve latest release tag; will use go install fallback"
       else
-        err "Could not resolve latest release tag and source fallback is disabled (set PROFLEX_ALLOW_SOURCE_FALLBACK=1 to enable)"
+        err "Could not resolve latest release tag and source fallback is disabled (set PROFILEX_ALLOW_SOURCE_FALLBACK=1 to enable)"
       fi
     fi
   fi
@@ -345,14 +386,14 @@ main() {
         warn "Release install failed; using go install fallback"
         install_with_go "$os" "$VERSION"
       else
-        err "Release install failed and source fallback is disabled (set PROFLEX_ALLOW_SOURCE_FALLBACK=1 to enable)"
+        err "Release install failed and source fallback is disabled (set PROFILEX_ALLOW_SOURCE_FALLBACK=1 to enable)"
       fi
     fi
   else
     if is_truthy "$ALLOW_SOURCE_FALLBACK"; then
       install_with_go "$os" "$VERSION"
     else
-      err "No release version resolved and source fallback is disabled (set PROFLEX_ALLOW_SOURCE_FALLBACK=1 to enable)"
+      err "No release version resolved and source fallback is disabled (set PROFILEX_ALLOW_SOURCE_FALLBACK=1 to enable)"
     fi
   fi
 

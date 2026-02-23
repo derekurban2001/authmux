@@ -12,10 +12,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/derekurban/proflex-cli/internal/app"
-	"github.com/derekurban/proflex-cli/internal/shim"
-	"github.com/derekurban/proflex-cli/internal/store"
+	"github.com/derekurban/profilex-cli/internal/app"
+	"github.com/derekurban/profilex-cli/internal/shim"
+	"github.com/derekurban/profilex-cli/internal/store"
 )
+
+// version is injected at build time via ldflags.
+var version = "dev"
+
+const ownershipMarkerMagic = "profilex-owned-binary-v1"
 
 // Run parses os.Args[1:] and dispatches to the appropriate command.
 // Returns the process exit code.
@@ -35,7 +40,7 @@ func Run(args []string) int {
 		return 0
 	}
 	if cmd == "--version" || cmd == "version" {
-		fmt.Println("proflex dev")
+		fmt.Printf("profilex %s\n", resolvedVersion())
 		return 0
 	}
 
@@ -78,12 +83,12 @@ func printHelp() {
 	fmt.Printf(`%s - profile manager for Claude Code & Codex CLI
 
 %s
-  proflex <command> [options]
+  profilex <command> [options]
 
 %s
   add <tool> <profile>          Create a new profile and install its shim
   remove <tool> <profile>       Remove a profile and its shim
-  uninstall [--purge]           Uninstall proflex from this machine
+  uninstall [--purge]           Uninstall profilex from this machine
   list [--tool <t>] [--json]    List all profiles with auth status
   use <tool> <profile>          Set the default profile for a tool
   rename <tool> <old> <new>     Rename a profile
@@ -92,16 +97,16 @@ func printHelp() {
   shim uninstall [--all]        Remove shims
 
 %s
-  --root <dir>     Override state directory (default: ~/.proflex)
+  --root <dir>     Override state directory (default: ~/.profilex)
 
 %s
-  proflex add claude work
-  proflex add codex personal
-  proflex list
-  proflex use claude work
+  profilex add claude work
+  profilex add codex personal
+  profilex list
+  profilex use claude work
   claude-work                   %s
 `,
-		Bold("proflex"),
+		Bold("profilex"),
 		Bold("Usage:"),
 		Bold("Commands:"),
 		Bold("Global options:"),
@@ -114,7 +119,7 @@ func printHelp() {
 
 func cmdAdd(rootDir string, args []string) error {
 	if hasHelp(args) || len(args) < 2 {
-		fmt.Printf("Usage: proflex add <tool> <profile>\n\n")
+		fmt.Printf("Usage: profilex add <tool> <profile>\n\n")
 		fmt.Printf("Supported tools: %s\n", strings.Join(toolNames(), ", "))
 		return nil
 	}
@@ -164,7 +169,7 @@ func cmdRemove(rootDir string, args []string) error {
 	purge, args := extractBool(args, "--purge")
 
 	if hasHelp(args) || len(args) < 2 {
-		fmt.Printf("Usage: proflex remove <tool> <profile> [--purge]\n")
+		fmt.Printf("Usage: profilex remove <tool> <profile> [--purge]\n")
 		return nil
 	}
 
@@ -204,8 +209,8 @@ func cmdUninstall(rootDir string, args []string) error {
 	purge, args := extractBool(args, "--purge")
 
 	if hasHelp(args) {
-		fmt.Printf("Usage: proflex uninstall [--purge]\n\n")
-		fmt.Printf("  --purge  Remove profile state directory (~/.proflex)\n")
+		fmt.Printf("Usage: profilex uninstall [--purge]\n\n")
+		fmt.Printf("  --purge  Remove profile state directory (~/.profilex)\n")
 		return nil
 	}
 	if len(args) > 0 {
@@ -222,7 +227,7 @@ func cmdUninstall(rootDir string, args []string) error {
 	if err != nil {
 		return err
 	}
-	summary = append(summary, fmt.Sprintf("Removed %d proflex shim(s) from %s", len(removed), shimDir))
+	summary = append(summary, fmt.Sprintf("Removed %d profilex shim(s) from %s", len(removed), shimDir))
 
 	if purge {
 		stateRoot, err := resolveRootDir(rootDir)
@@ -235,10 +240,10 @@ func cmdUninstall(rootDir string, args []string) error {
 		summary = append(summary, fmt.Sprintf("Removed state directory %s", stateRoot))
 	}
 
-	binCandidates := proflexBinaryCandidates()
+	binCandidates := profilexBinaryCandidates()
 	binRemoved := []string{}
 	for _, candidate := range binCandidates {
-		removed, err := removeFileWithWindowsFallback(candidate)
+		removed, err := removeOwnedBinary(candidate)
 		if err != nil {
 			return fmt.Errorf("remove binary %s: %w", candidate, err)
 		}
@@ -247,7 +252,7 @@ func cmdUninstall(rootDir string, args []string) error {
 		}
 	}
 	if len(binRemoved) == 0 {
-		summary = append(summary, "Could not remove proflex binary automatically")
+		summary = append(summary, "No installer-managed profilex binary found to remove")
 	} else {
 		for _, path := range binRemoved {
 			summary = append(summary, "Removed binary "+path)
@@ -259,7 +264,7 @@ func cmdUninstall(rootDir string, args []string) error {
 		fmt.Printf("   - %s\n", line)
 	}
 	if len(binRemoved) == 0 {
-		fmt.Printf("   - %s\n", "If proflex is still on PATH, remove it manually from your install directory.")
+		fmt.Printf("   - %s\n", "If profilex is still on PATH, remove it manually from your install directory.")
 	}
 	return nil
 }
@@ -271,7 +276,7 @@ func cmdList(rootDir string, args []string) error {
 	jsonOut, _ := extractBool(args, "--json")
 
 	if hasHelp(args) {
-		fmt.Printf("Usage: proflex list [--tool <tool>] [--json]\n")
+		fmt.Printf("Usage: profilex list [--tool <tool>] [--json]\n")
 		return nil
 	}
 
@@ -311,7 +316,7 @@ func cmdList(rootDir string, args []string) error {
 
 	if len(rows) == 0 {
 		fmt.Printf("No profiles found.\n\n")
-		fmt.Printf("💡 Get started: %s\n", Bold("proflex add claude <profile-name>"))
+		fmt.Printf("💡 Get started: %s\n", Bold("profilex add claude <profile-name>"))
 		return nil
 	}
 
@@ -364,7 +369,7 @@ func cmdList(rootDir string, args []string) error {
 
 func cmdUse(rootDir string, args []string) error {
 	if hasHelp(args) || len(args) < 2 {
-		fmt.Printf("Usage: proflex use <tool> <profile>\n")
+		fmt.Printf("Usage: profilex use <tool> <profile>\n")
 		return nil
 	}
 
@@ -390,7 +395,7 @@ func cmdUse(rootDir string, args []string) error {
 
 func cmdRename(rootDir string, args []string) error {
 	if hasHelp(args) || len(args) < 3 {
-		fmt.Printf("Usage: proflex rename <tool> <old-name> <new-name>\n")
+		fmt.Printf("Usage: profilex rename <tool> <old-name> <new-name>\n")
 		return nil
 	}
 
@@ -437,7 +442,7 @@ func cmdRename(rootDir string, args []string) error {
 
 func cmdRun(rootDir string, args []string) error {
 	if hasHelp(args) || len(args) < 1 {
-		fmt.Printf("Usage: proflex run <tool> [profile] -- [tool args...]\n")
+		fmt.Printf("Usage: profilex run <tool> [profile] -- [tool args...]\n")
 		return nil
 	}
 
@@ -445,7 +450,7 @@ func cmdRun(rootDir string, args []string) error {
 	pre, toolArgs := splitDash(args)
 
 	if len(pre) < 1 || len(pre) > 2 {
-		return fmt.Errorf("usage: proflex run <tool> [profile] -- [tool args...]")
+		return fmt.Errorf("usage: profilex run <tool> [profile] -- [tool args...]")
 	}
 
 	tool, err := parseTool(pre[0])
@@ -481,8 +486,8 @@ func cmdRun(rootDir string, args []string) error {
 func cmdShim(rootDir string, args []string) error {
 	if len(args) == 0 || hasHelp(args) {
 		fmt.Printf("Usage:\n")
-		fmt.Printf("  proflex shim install [--dir <d>]\n")
-		fmt.Printf("  proflex shim uninstall [--all] [<tool> <profile>]\n")
+		fmt.Printf("  profilex shim install [--dir <d>]\n")
+		fmt.Printf("  profilex shim uninstall [--all] [<tool> <profile>]\n")
 		return nil
 	}
 
@@ -519,16 +524,24 @@ func cmdShimInstall(rootDir string, args []string) error {
 		return err
 	}
 
-	bin := resolveProflexBin()
+	bin := resolveProfileXBin()
 	count := 0
+	failures := 0
 	for _, p := range st.Profiles {
-		if path, err := shim.Install(dir, p, bin); err == nil {
-			fmt.Printf("   🔗 %s\n", Cyan(path))
-			count++
+		path, err := shim.Install(dir, p, bin)
+		if err != nil {
+			failures++
+			fmt.Printf("   %s Failed to install shim for %s/%s: %v\n", Yellow("!"), p.Tool, p.Name, err)
+			continue
 		}
+		fmt.Printf("   -> %s\n", Cyan(path))
+		count++
 	}
 
-	fmt.Printf("\n%s Installed %d shim(s) in %s\n", Green("✓"), count, Dim(dir))
+	fmt.Printf("\n%s Installed %d shim(s) in %s\n", Green("ok"), count, Dim(dir))
+	if failures > 0 {
+		return fmt.Errorf("failed to install %d shim(s)", failures)
+	}
 	return nil
 }
 
@@ -576,6 +589,14 @@ func cmdShimUninstall(rootDir string, args []string) error {
 
 // --- helpers ---
 
+func resolvedVersion() string {
+	v := strings.TrimSpace(version)
+	if v == "" {
+		return "dev"
+	}
+	return v
+}
+
 func newManager(rootDir string) (*app.Manager, error) {
 	if strings.TrimSpace(rootDir) == "" {
 		return app.NewDefaultManager()
@@ -609,17 +630,17 @@ func installShimForProfile(profile store.Profile) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return shim.Install(dir, profile, resolveProflexBin())
+	return shim.Install(dir, profile, resolveProfileXBin())
 }
 
-func resolveProflexBin() string {
+func resolveProfileXBin() string {
 	if exe, err := os.Executable(); err == nil && strings.TrimSpace(exe) != "" {
 		return exe
 	}
-	if bin, err := exec.LookPath("proflex"); err == nil && strings.TrimSpace(bin) != "" {
+	if bin, err := exec.LookPath("profilex"); err == nil && strings.TrimSpace(bin) != "" {
 		return bin
 	}
-	return "proflex"
+	return "profilex"
 }
 
 func resolveRootDir(rootDir string) (string, error) {
@@ -634,37 +655,100 @@ func resolveRootDir(rootDir string) (string, error) {
 	return abs, nil
 }
 
-func proflexBinaryCandidates() []string {
+func profilexBinaryCandidates() []string {
 	var candidates []string
 
-	if exe, err := os.Executable(); err == nil && isProflexBinaryPath(exe) {
+	if exe, err := os.Executable(); err == nil && isProfileXBinaryPath(exe) {
 		candidates = append(candidates, exe)
 	}
-	if lp, err := exec.LookPath("proflex"); err == nil && isProflexBinaryPath(lp) {
+	if lp, err := exec.LookPath("profilex"); err == nil && isProfileXBinaryPath(lp) {
 		candidates = append(candidates, lp)
 	}
-	if lp, err := exec.LookPath("proflex.exe"); err == nil && isProflexBinaryPath(lp) {
+	if lp, err := exec.LookPath("profilex.exe"); err == nil && isProfileXBinaryPath(lp) {
 		candidates = append(candidates, lp)
 	}
 
 	home, err := os.UserHomeDir()
 	if err == nil && strings.TrimSpace(home) != "" {
-		installDir := os.Getenv("PROFLEX_INSTALL_DIR")
+		installDir := os.Getenv("PROFILEX_INSTALL_DIR")
 		if strings.TrimSpace(installDir) == "" {
 			installDir = filepath.Join(home, ".local", "bin")
 		}
 		candidates = append(candidates,
-			filepath.Join(installDir, "proflex"),
-			filepath.Join(installDir, "proflex.exe"),
+			filepath.Join(installDir, "profilex"),
+			filepath.Join(installDir, "profilex.exe"),
 		)
 	}
 
 	return uniquePaths(candidates)
 }
 
-func isProflexBinaryPath(path string) bool {
+func isProfileXBinaryPath(path string) bool {
 	base := strings.ToLower(filepath.Base(path))
-	return base == "proflex" || base == "proflex.exe"
+	return base == "profilex" || base == "profilex.exe"
+}
+
+func removeOwnedBinary(path string) (bool, error) {
+	if !isInstallerManagedBinary(path) {
+		return false, nil
+	}
+	removed, err := removeFileWithWindowsFallback(path)
+	if err != nil {
+		return false, err
+	}
+	if removed {
+		_ = os.Remove(ownershipMarkerPath(path))
+	}
+	return removed, nil
+}
+
+func isInstallerManagedBinary(binaryPath string) bool {
+	markerPath := ownershipMarkerPath(binaryPath)
+	content, err := os.ReadFile(markerPath)
+	if err != nil {
+		return false
+	}
+
+	lines := strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != ownershipMarkerMagic {
+		return false
+	}
+	for _, line := range lines[1:] {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "path=") {
+			continue
+		}
+		markerPath := strings.TrimSpace(strings.TrimPrefix(line, "path="))
+		if markerPath == "" {
+			return false
+		}
+		return equalFilePath(binaryPath, markerPath)
+	}
+
+	// Backward-compatible marker support: if a marker exists with a valid magic
+	// header but no explicit path field, treat it as managed.
+	return true
+}
+
+func ownershipMarkerPath(binaryPath string) string {
+	base := filepath.Base(binaryPath)
+	return filepath.Join(filepath.Dir(binaryPath), "."+base+".profilex-owner")
+}
+
+func equalFilePath(a, b string) bool {
+	na := normalizedPathForCompare(a)
+	nb := normalizedPathForCompare(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(na, nb)
+	}
+	return na == nb
+}
+
+func normalizedPathForCompare(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	return filepath.Clean(path)
 }
 
 func uniquePaths(paths []string) []string {
@@ -674,7 +758,7 @@ func uniquePaths(paths []string) []string {
 		if strings.TrimSpace(p) == "" {
 			continue
 		}
-		key := filepath.Clean(p)
+		key := normalizedPathForCompare(p)
 		if runtime.GOOS == "windows" {
 			key = strings.ToLower(key)
 		}

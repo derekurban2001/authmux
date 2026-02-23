@@ -7,12 +7,22 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
 const stateFileName = "state.json"
+const stateLockFileName = "state.lock"
+
+const (
+	lockWaitTimeout = 15 * time.Second
+	lockPollDelay   = 50 * time.Millisecond
+	staleLockAge    = 10 * time.Minute
+)
 
 var profileNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 
@@ -43,14 +53,14 @@ type Store struct {
 }
 
 func DefaultRoot() (string, error) {
-	if custom := strings.TrimSpace(os.Getenv("PROFLEX_HOME")); custom != "" {
+	if custom := strings.TrimSpace(os.Getenv("PROFILEX_HOME")); custom != "" {
 		return custom, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".proflex"), nil
+	return filepath.Join(home, ".profilex"), nil
 }
 
 func New(root string) (*Store, error) {
@@ -71,58 +81,57 @@ func (s *Store) statePath() string {
 	return filepath.Join(s.root, stateFileName)
 }
 
+func (s *Store) lockPath() string {
+	return filepath.Join(s.root, stateLockFileName)
+}
+
 func (s *Store) Load() (*State, error) {
-	path := s.statePath()
-	b, err := os.ReadFile(path)
+	lock, err := s.acquireLock()
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return &State{
-				Version:  1,
-				Defaults: map[Tool]string{},
-				Profiles: []Profile{},
-			}, nil
-		}
 		return nil, err
 	}
-	var st State
-	if err := json.Unmarshal(b, &st); err != nil {
+	defer s.releaseLock(lock)
+
+	st, err := s.loadUnlocked()
+	if err != nil {
 		return nil, err
 	}
-	if st.Defaults == nil {
-		st.Defaults = map[Tool]string{}
-	}
-	if st.Profiles == nil {
-		st.Profiles = []Profile{}
-	}
-	if st.Version == 0 {
-		st.Version = 1
-	}
-	sort.Slice(st.Profiles, func(i, j int) bool {
-		if st.Profiles[i].Tool == st.Profiles[j].Tool {
-			return st.Profiles[i].Name < st.Profiles[j].Name
-		}
-		return st.Profiles[i].Tool < st.Profiles[j].Tool
-	})
-	return &st, nil
+	return st, nil
 }
 
 func (s *Store) Save(st *State) error {
 	if st == nil {
 		return errors.New("state cannot be nil")
 	}
-	if st.Defaults == nil {
-		st.Defaults = map[Tool]string{}
-	}
-	if st.Profiles == nil {
-		st.Profiles = []Profile{}
-	}
-	st.Version = 1
-	b, err := json.MarshalIndent(st, "", "  ")
+
+	lock, err := s.acquireLock()
 	if err != nil {
 		return err
 	}
-	b = append(b, '\n')
-	return os.WriteFile(s.statePath(), b, 0o644)
+	defer s.releaseLock(lock)
+
+	return s.writeStateUnlocked(st)
+}
+
+func (s *Store) Update(fn func(*State) error) error {
+	if fn == nil {
+		return errors.New("update callback cannot be nil")
+	}
+
+	lock, err := s.acquireLock()
+	if err != nil {
+		return err
+	}
+	defer s.releaseLock(lock)
+
+	st, err := s.loadUnlocked()
+	if err != nil {
+		return err
+	}
+	if err := fn(st); err != nil {
+		return err
+	}
+	return s.writeStateUnlocked(st)
 }
 
 func IsSupportedTool(raw string) (Tool, bool) {
@@ -162,4 +171,199 @@ func DefaultProfile(st *State, tool Tool) (string, bool) {
 		return "", false
 	}
 	return v, true
+}
+
+func defaultState() *State {
+	return &State{
+		Version:  1,
+		Defaults: map[Tool]string{},
+		Profiles: []Profile{},
+	}
+}
+
+func normalizeState(st *State) {
+	if st.Defaults == nil {
+		st.Defaults = map[Tool]string{}
+	}
+	if st.Profiles == nil {
+		st.Profiles = []Profile{}
+	}
+	st.Version = 1
+	sort.Slice(st.Profiles, func(i, j int) bool {
+		if st.Profiles[i].Tool == st.Profiles[j].Tool {
+			return st.Profiles[i].Name < st.Profiles[j].Name
+		}
+		return st.Profiles[i].Tool < st.Profiles[j].Tool
+	})
+}
+
+func (s *Store) loadUnlocked() (*State, error) {
+	b, err := os.ReadFile(s.statePath())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return defaultState(), nil
+		}
+		return nil, err
+	}
+
+	st := State{}
+	if err := json.Unmarshal(b, &st); err != nil {
+		return nil, err
+	}
+	normalizeState(&st)
+	return &st, nil
+}
+
+func (s *Store) writeStateUnlocked(st *State) error {
+	if st == nil {
+		return errors.New("state cannot be nil")
+	}
+	normalizeState(st)
+
+	b, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+
+	tmp, err := os.CreateTemp(s.root, ".state-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	keepTmp := false
+	defer func() {
+		if !keepTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmp.Write(b); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+
+	if err := os.Rename(tmpPath, s.statePath()); err != nil {
+		if runtime.GOOS != "windows" {
+			return err
+		}
+		if rmErr := os.Remove(s.statePath()); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+			return fmt.Errorf("replace state file: %w", rmErr)
+		}
+		if err := os.Rename(tmpPath, s.statePath()); err != nil {
+			return err
+		}
+	}
+	keepTmp = true
+	return nil
+}
+
+func (s *Store) acquireLock() (*os.File, error) {
+	deadline := time.Now().Add(lockWaitTimeout)
+	lockPath := s.lockPath()
+
+	for {
+		lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err == nil {
+			_, _ = fmt.Fprintf(lock, "pid=%d\ntime=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339Nano))
+			return lock, nil
+		}
+
+		if !errors.Is(err, os.ErrExist) {
+			return nil, err
+		}
+
+		s.tryRemoveStaleLock(lockPath)
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("timed out waiting for state lock: %s", lockPath)
+		}
+		time.Sleep(lockPollDelay)
+	}
+}
+
+func (s *Store) releaseLock(lock *os.File) {
+	if lock == nil {
+		return
+	}
+	lockPath := lock.Name()
+	lockInfo, _ := lock.Stat()
+	_ = lock.Close()
+	if lockInfo == nil {
+		_ = os.Remove(lockPath)
+		return
+	}
+	pathInfo, err := os.Stat(lockPath)
+	if err != nil {
+		return
+	}
+	if os.SameFile(lockInfo, pathInfo) {
+		_ = os.Remove(lockPath)
+	}
+}
+
+func (s *Store) tryRemoveStaleLock(lockPath string) {
+	info, err := os.Stat(lockPath)
+	if err != nil {
+		return
+	}
+	if time.Since(info.ModTime()) <= staleLockAge {
+		return
+	}
+	pid := lockPID(lockPath)
+	if pid > 0 && processExists(pid) {
+		return
+	}
+	_ = os.Remove(lockPath)
+}
+
+func lockPID(lockPath string) int {
+	b, err := os.ReadFile(lockPath)
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "pid=") {
+			continue
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "pid=")))
+		if err != nil || pid <= 0 {
+			return 0
+		}
+		return pid
+	}
+	return 0
+}
+
+func processExists(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	err = proc.Signal(syscall.Signal(0))
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, os.ErrProcessDone) {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		// os.Process.Signal(0) is not reliably supported on windows.
+		// Be conservative and avoid deleting a potentially live lock.
+		return true
+	}
+	if errors.Is(err, syscall.EPERM) {
+		return true
+	}
+	return false
 }

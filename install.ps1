@@ -1,41 +1,56 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$Repo = if ($env:PROFLEX_REPO) { $env:PROFLEX_REPO } else { "derekurban/proflex-cli" }
-$OfficialRepo = "derekurban/proflex-cli"
-$LegacyRepo = "derekurban2001/proflex-cli"
-$ModulePath = "github.com/derekurban/proflex-cli"
-$BinaryBase = "proflex"
-$BinaryName = "proflex.exe"
+function Get-EnvValue {
+  param(
+    [Parameter(Mandatory = $true)][string[]]$Names,
+    [Parameter()][string]$Default = ""
+  )
+  foreach ($name in $Names) {
+    $value = [Environment]::GetEnvironmentVariable($name)
+    if (-not [string]::IsNullOrWhiteSpace($value)) {
+      return $value
+    }
+  }
+  return $Default
+}
 
-$InstallDir = if ($env:PROFLEX_INSTALL_DIR) { $env:PROFLEX_INSTALL_DIR } else { Join-Path $HOME ".local\bin" }
-$Version = if ($env:PROFLEX_VERSION) { $env:PROFLEX_VERSION } else { "latest" }
-$AutoPathRaw = if ($env:PROFLEX_AUTO_PATH) { $env:PROFLEX_AUTO_PATH } else { "1" }
-$VerifySignaturesRaw = if ($env:PROFLEX_VERIFY_SIGNATURES) { $env:PROFLEX_VERIFY_SIGNATURES } else { "1" }
-$AllowSourceFallbackRaw = if ($env:PROFLEX_ALLOW_SOURCE_FALLBACK) { $env:PROFLEX_ALLOW_SOURCE_FALLBACK } else { "0" }
-$AutoInstallGoRaw = if ($env:PROFLEX_AUTO_INSTALL_GO) { $env:PROFLEX_AUTO_INSTALL_GO } else { "1" }
-$CosignVersion = if ($env:PROFLEX_COSIGN_VERSION) { $env:PROFLEX_COSIGN_VERSION } else { "v2.5.3" }
+$Repo = Get-EnvValue -Names @("PROFILEX_REPO", "PROFLEX_REPO") -Default "derekurban/profilex-cli"
+$OfficialRepo = "derekurban/profilex-cli"
+$LegacyRepo = "derekurban2001/profilex-cli"
+$ModulePath = Get-EnvValue -Names @("PROFILEX_MODULE_PATH", "PROFLEX_MODULE_PATH") -Default "github.com/$Repo"
+$BinaryBase = "profilex"
+$BinaryName = "profilex.exe"
+$OwnershipMarkerMagic = "profilex-owned-binary-v1"
+
+$InstallDir = Get-EnvValue -Names @("PROFILEX_INSTALL_DIR", "PROFLEX_INSTALL_DIR") -Default (Join-Path $HOME ".local\bin")
+$Version = Get-EnvValue -Names @("PROFILEX_VERSION", "PROFLEX_VERSION") -Default "latest"
+$AutoPathRaw = Get-EnvValue -Names @("PROFILEX_AUTO_PATH", "PROFLEX_AUTO_PATH") -Default "1"
+$VerifySignaturesRaw = Get-EnvValue -Names @("PROFILEX_VERIFY_SIGNATURES", "PROFLEX_VERIFY_SIGNATURES") -Default "1"
+$AllowSourceFallbackRaw = Get-EnvValue -Names @("PROFILEX_ALLOW_SOURCE_FALLBACK", "PROFLEX_ALLOW_SOURCE_FALLBACK") -Default "0"
+$AutoInstallGoRaw = Get-EnvValue -Names @("PROFILEX_AUTO_INSTALL_GO", "PROFLEX_AUTO_INSTALL_GO") -Default "1"
+$CosignVersion = Get-EnvValue -Names @("PROFILEX_COSIGN_VERSION", "PROFLEX_COSIGN_VERSION") -Default "v2.5.3"
 $DefaultCosignIdentityRegex = if ($Repo -eq $OfficialRepo -or $Repo -eq $LegacyRepo) {
-  "^https://github.com/(derekurban/proflex-cli|derekurban2001/proflex-cli)/.github/workflows/release.yml@refs/tags/.*$"
+  "^https://github.com/(derekurban/profilex-cli|derekurban2001/profilex-cli)/.github/workflows/release.yml@refs/tags/.*$"
 } else {
   "^https://github.com/$Repo/.github/workflows/release.yml@refs/tags/.*$"
 }
-$CosignIdentityRegex = if ($env:PROFLEX_COSIGN_IDENTITY_RE) { $env:PROFLEX_COSIGN_IDENTITY_RE } else { $DefaultCosignIdentityRegex }
-$CosignOidcIssuer = if ($env:PROFLEX_COSIGN_OIDC_ISSUER) { $env:PROFLEX_COSIGN_OIDC_ISSUER } else { "https://token.actions.githubusercontent.com" }
+$CosignIdentityRegex = Get-EnvValue -Names @("PROFILEX_COSIGN_IDENTITY_RE", "PROFLEX_COSIGN_IDENTITY_RE") -Default $DefaultCosignIdentityRegex
+$CosignOidcIssuer = Get-EnvValue -Names @("PROFILEX_COSIGN_OIDC_ISSUER", "PROFLEX_COSIGN_OIDC_ISSUER") -Default "https://token.actions.githubusercontent.com"
 
 function Write-Log {
   param([string]$Message)
-  Write-Host "[proflex-install] $Message"
+  Write-Host "[profilex-install] $Message"
 }
 
 function Write-WarnMessage {
   param([string]$Message)
-  Write-Warning "[proflex-install] $Message"
+  Write-Warning "[profilex-install] $Message"
 }
 
 function Fail {
   param([string]$Message)
-  throw "[proflex-install] ERROR: $Message"
+  throw "[profilex-install] ERROR: $Message"
 }
 
 function Test-Truthy {
@@ -180,6 +195,34 @@ function Get-ExpectedChecksum {
   return $null
 }
 
+function Get-OwnershipMarkerPath {
+  param([Parameter(Mandatory = $true)][string]$BinaryPath)
+  $dir = Split-Path -Path $BinaryPath -Parent
+  $name = Split-Path -Path $BinaryPath -Leaf
+  return Join-Path $dir ".$name.profilex-owner"
+}
+
+function Write-OwnershipMarker {
+  param([Parameter(Mandatory = $true)][string]$BinaryPath)
+
+  if (-not (Test-Path $BinaryPath)) {
+    return
+  }
+
+  $resolvedBinary = (Resolve-Path -Path $BinaryPath).Path
+  $markerPath = Get-OwnershipMarkerPath -BinaryPath $resolvedBinary
+  $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+
+  @(
+    $OwnershipMarkerMagic
+    "path=$resolvedBinary"
+    "repo=$Repo"
+    "installed_at=$timestamp"
+  ) | Set-Content -Path $markerPath -Encoding UTF8
+
+  Write-Log "Wrote ownership marker $markerPath"
+}
+
 function Ensure-Cosign {
   param(
     [Parameter(Mandatory = $true)][string]$Arch,
@@ -210,7 +253,7 @@ function Verify-ChecksumsSignature {
   )
 
   if (-not (Test-Truthy $VerifySignaturesRaw)) {
-    Write-WarnMessage "Signature verification disabled via PROFLEX_VERIFY_SIGNATURES=0"
+    Write-WarnMessage "Signature verification disabled via PROFILEX_VERIFY_SIGNATURES=0"
     return
   }
 
@@ -266,7 +309,7 @@ function Get-LatestTag {
 }
 
 function New-TempDir {
-  $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("proflex-install-" + [System.Guid]::NewGuid().ToString("N"))
+  $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("profilex-install-" + [System.Guid]::NewGuid().ToString("N"))
   New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
   return $tempDir
 }
@@ -303,7 +346,7 @@ function Install-FromRelease {
           -SignaturePath $checksumsSigPath `
           -CertificatePath $checksumsCertPath
       } else {
-        Write-WarnMessage "Signature verification disabled via PROFLEX_VERIFY_SIGNATURES=0"
+        Write-WarnMessage "Signature verification disabled via PROFILEX_VERIFY_SIGNATURES=0"
       }
 
       foreach ($asset in $assets) {
@@ -347,6 +390,7 @@ function Install-FromRelease {
         New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null
         $dest = Join-Path $InstallDir $BinaryName
         Copy-Item -Path $candidate.FullName -Destination $dest -Force
+        Write-OwnershipMarker -BinaryPath $dest
         Write-Log "Installed $BinaryName to $dest"
         return $true
       }
@@ -401,6 +445,7 @@ function Install-WithGo {
   New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null
   $dest = Join-Path $InstallDir $BinaryName
   Copy-Item -Path $source -Destination $dest -Force
+  Write-OwnershipMarker -BinaryPath $dest
   Write-Log "Installed $BinaryName to $dest"
 }
 
@@ -468,7 +513,7 @@ function Main {
         Write-WarnMessage "Could not resolve latest release tag; using go install fallback"
         $resolvedVersion = $null
       } else {
-        Fail "Could not resolve latest release tag and source fallback is disabled (set PROFLEX_ALLOW_SOURCE_FALLBACK=1 to enable)."
+        Fail "Could not resolve latest release tag and source fallback is disabled (set PROFILEX_ALLOW_SOURCE_FALLBACK=1 to enable)."
       }
     } else {
       $resolvedVersion = $latest
@@ -484,7 +529,7 @@ function Main {
       Write-WarnMessage "Release install failed; using go install fallback"
       Install-WithGo -RequestedVersion $Version
     } else {
-      Fail "Release install failed and source fallback is disabled (set PROFLEX_ALLOW_SOURCE_FALLBACK=1 to enable)."
+      Fail "Release install failed and source fallback is disabled (set PROFILEX_ALLOW_SOURCE_FALLBACK=1 to enable)."
     }
   }
 

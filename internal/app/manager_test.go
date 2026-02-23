@@ -1,11 +1,12 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/derekurban/proflex-cli/internal/store"
+	"github.com/derekurban/profilex-cli/internal/store"
 )
 
 func newTestManager(t *testing.T) *Manager {
@@ -154,5 +155,93 @@ func TestRemoveProfilePurgeDeletesDir(t *testing.T) {
 	}
 	if _, err := os.Stat(p.Dir); !os.IsNotExist(err) {
 		t.Fatalf("expected profile dir to be deleted with purge")
+	}
+}
+
+func TestRemoveProfileRejectsUnsafePersistedDir(t *testing.T) {
+	m := newTestManager(t)
+	if _, _, err := m.EnsureProfile(store.ToolClaude, "work"); err != nil {
+		t.Fatal(err)
+	}
+
+	unsafeDir := t.TempDir()
+	sentinel := filepath.Join(unsafeDir, "keep.txt")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := m.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Profiles[0].Dir = unsafeDir
+	if err := m.Save(st); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.RemoveProfile(store.ToolClaude, "work", true); err == nil {
+		t.Fatalf("expected remove with purge to reject unsafe profile directory")
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("unsafe directory should not be deleted: %v", err)
+	}
+
+	after, err := m.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, p := store.FindProfile(after, store.ToolClaude, "work"); p == nil {
+		t.Fatalf("profile should remain after rejected unsafe remove")
+	}
+}
+
+func TestGetProfileRejectsUnsafePersistedDir(t *testing.T) {
+	m := newTestManager(t)
+	if _, _, err := m.EnsureProfile(store.ToolCodex, "main"); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := m.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Profiles[0].Dir = t.TempDir()
+	if err := m.Save(st); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := m.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.GetProfile(loaded, store.ToolCodex, "main"); err == nil {
+		t.Fatalf("expected unsafe persisted path to be rejected")
+	}
+}
+
+func TestStatusRowsSurfaceUnsafeDirErrors(t *testing.T) {
+	m := newTestManager(t)
+	if _, _, err := m.EnsureProfile(store.ToolClaude, "x"); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := m.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Profiles[0].Dir = t.TempDir()
+	if err := m.Save(st); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := m.StatusRows(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected one row, got %d", len(rows))
+	}
+	if rows[0].Error == "" {
+		t.Fatalf("expected unsafe directory error in status row")
 	}
 }

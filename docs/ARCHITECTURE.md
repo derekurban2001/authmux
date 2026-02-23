@@ -1,6 +1,6 @@
-# Proflex Architecture
+# ProfileX Architecture
 
-Proflex has three core layers:
+ProfileX has three core layers:
 
 1. **CLI layer (`internal/cli`)**
    - Parses commands/flags and dispatches to app logic.
@@ -23,7 +23,7 @@ Proflex has three core layers:
 
 ## Runtime model
 
-- `proflex run ...` resolves tool + profile context.
+- `profilex run ...` resolves tool + profile context.
 - Adapter injects environment variable for that profile directory.
 - Tool is launched normally (`claude` or `codex`) with isolated config context.
 
@@ -37,5 +37,5 @@ Proflex has three core layers:
 Each shim executes:
 
 ```bash
-proflex run <tool> <profile> -- "$@"
+profilex run <tool> <profile> -- "$@"
 ```

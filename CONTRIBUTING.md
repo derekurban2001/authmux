@@ -1,12 +1,12 @@
-# Contributing to Proflex
+# Contributing to ProfileX
 
 Thanks for your interest in contributing.
 
 ## Development setup
 
 ```bash
-git clone https://github.com/derekurban/proflex-cli.git
-cd proflex-cli
+git clone https://github.com/derekurban/profilex-cli.git
+cd profilex-cli
 go mod tidy
 go test ./...
 ```
@@ -14,8 +14,8 @@ go test ./...
 ## Build locally
 
 ```bash
-go build -o proflex .
-./proflex --help
+go build -o profilex .
+./profilex --help
 ```
 
 ## Run checks before opening a PR

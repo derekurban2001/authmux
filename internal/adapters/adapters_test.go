@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/derekurban/proflex-cli/internal/store"
+	"github.com/derekurban/profilex-cli/internal/store"
 )
 
 func hasEnvPrefix(env []string, prefix string) bool {

@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/derekurban/proflex-cli/internal/cli"
+	"github.com/derekurban/profilex-cli/internal/cli"
 )
 
 func main() {

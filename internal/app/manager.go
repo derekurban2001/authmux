@@ -7,11 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"runtime"
+	"strings"
 	"time"
 
-	"github.com/derekurban/proflex-cli/internal/adapters"
-	"github.com/derekurban/proflex-cli/internal/store"
+	"github.com/derekurban/profilex-cli/internal/adapters"
+	"github.com/derekurban/profilex-cli/internal/store"
 )
 
 type ExitCodeError struct {
@@ -64,32 +65,47 @@ func (m *Manager) EnsureProfile(tool store.Tool, name string) (store.Profile, bo
 	if err := store.ValidateProfileName(name); err != nil {
 		return store.Profile{}, false, err
 	}
-	st, err := m.Load()
+	var (
+		outProfile store.Profile
+		created    bool
+	)
+
+	err := m.store.Update(func(st *store.State) error {
+		if _, existing := store.FindProfile(st, tool, name); existing != nil {
+			dir, err := m.validatedManagedProfileDir(*existing)
+			if err != nil {
+				return err
+			}
+			outProfile = *existing
+			outProfile.Dir = dir
+			return nil
+		}
+
+		dir, err := m.expectedProfileDir(tool, name)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+
+		outProfile = store.Profile{
+			Tool:      tool,
+			Name:      name,
+			Dir:       dir,
+			CreatedAt: time.Now().UTC(),
+		}
+		st.Profiles = append(st.Profiles, outProfile)
+		if _, ok := st.Defaults[tool]; !ok {
+			st.Defaults[tool] = name
+		}
+		created = true
+		return nil
+	})
 	if err != nil {
 		return store.Profile{}, false, err
 	}
-	if _, existing := store.FindProfile(st, tool, name); existing != nil {
-		return *existing, false, nil
-	}
-	dir := store.ProfileDir(m.Root(), tool, name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return store.Profile{}, false, err
-	}
-	p := store.Profile{Tool: tool, Name: name, Dir: dir, CreatedAt: time.Now().UTC()}
-	st.Profiles = append(st.Profiles, p)
-	sort.Slice(st.Profiles, func(i, j int) bool {
-		if st.Profiles[i].Tool == st.Profiles[j].Tool {
-			return st.Profiles[i].Name < st.Profiles[j].Name
-		}
-		return st.Profiles[i].Tool < st.Profiles[j].Tool
-	})
-	if _, ok := st.Defaults[tool]; !ok {
-		st.Defaults[tool] = name
-	}
-	if err := m.Save(st); err != nil {
-		return store.Profile{}, false, err
-	}
-	return p, true, nil
+	return outProfile, created, nil
 }
 
 func (m *Manager) GetProfile(st *store.State, tool store.Tool, name string) (store.Profile, error) {
@@ -97,7 +113,13 @@ func (m *Manager) GetProfile(st *store.State, tool store.Tool, name string) (sto
 	if p == nil {
 		return store.Profile{}, fmt.Errorf("profile not found: %s/%s", tool, name)
 	}
-	return *p, nil
+	dir, err := m.validatedManagedProfileDir(*p)
+	if err != nil {
+		return store.Profile{}, err
+	}
+	out := *p
+	out.Dir = dir
+	return out, nil
 }
 
 func (m *Manager) ResolveProfile(st *store.State, tool store.Tool, profileOptional string) (store.Profile, error) {
@@ -112,72 +134,80 @@ func (m *Manager) ResolveProfile(st *store.State, tool store.Tool, profileOption
 }
 
 func (m *Manager) SetDefault(tool store.Tool, name string) error {
-	st, err := m.Load()
-	if err != nil {
-		return err
-	}
-	if _, p := store.FindProfile(st, tool, name); p == nil {
-		return fmt.Errorf("profile not found: %s/%s", tool, name)
-	}
-	st.Defaults[tool] = name
-	return m.Save(st)
+	return m.store.Update(func(st *store.State) error {
+		if _, p := store.FindProfile(st, tool, name); p == nil {
+			return fmt.Errorf("profile not found: %s/%s", tool, name)
+		}
+		st.Defaults[tool] = name
+		return nil
+	})
 }
 
 func (m *Manager) RenameProfile(tool store.Tool, oldName, newName string) error {
 	if err := store.ValidateProfileName(newName); err != nil {
 		return err
 	}
-	st, err := m.Load()
-	if err != nil {
-		return err
-	}
-	idx, p := store.FindProfile(st, tool, oldName)
-	if p == nil {
-		return fmt.Errorf("profile not found: %s/%s", tool, oldName)
-	}
-	if _, exists := store.FindProfile(st, tool, newName); exists != nil {
-		return fmt.Errorf("target profile already exists: %s/%s", tool, newName)
-	}
-	newDir := store.ProfileDir(m.Root(), tool, newName)
-	if err := os.MkdirAll(filepath.Dir(newDir), 0o755); err != nil {
-		return err
-	}
-	if err := os.Rename(p.Dir, newDir); err != nil {
-		return err
-	}
-	st.Profiles[idx].Name = newName
-	st.Profiles[idx].Dir = newDir
-	if st.Defaults[tool] == oldName {
-		st.Defaults[tool] = newName
-	}
-	return m.Save(st)
+	return m.store.Update(func(st *store.State) error {
+		idx, p := store.FindProfile(st, tool, oldName)
+		if p == nil {
+			return fmt.Errorf("profile not found: %s/%s", tool, oldName)
+		}
+		if _, exists := store.FindProfile(st, tool, newName); exists != nil {
+			return fmt.Errorf("target profile already exists: %s/%s", tool, newName)
+		}
+
+		oldDir, err := m.validatedManagedProfileDir(*p)
+		if err != nil {
+			return err
+		}
+		newDir, err := m.expectedProfileDir(tool, newName)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(newDir), 0o755); err != nil {
+			return err
+		}
+		if err := os.Rename(oldDir, newDir); err != nil {
+			return err
+		}
+
+		st.Profiles[idx].Name = newName
+		st.Profiles[idx].Dir = newDir
+		if st.Defaults[tool] == oldName {
+			st.Defaults[tool] = newName
+		}
+		return nil
+	})
 }
 
 func (m *Manager) RemoveProfile(tool store.Tool, name string, purge bool) error {
-	st, err := m.Load()
-	if err != nil {
-		return err
-	}
-	idx, p := store.FindProfile(st, tool, name)
-	if p == nil {
-		return fmt.Errorf("profile not found: %s/%s", tool, name)
-	}
-	if purge {
-		if err := os.RemoveAll(p.Dir); err != nil {
+	return m.store.Update(func(st *store.State) error {
+		idx, p := store.FindProfile(st, tool, name)
+		if p == nil {
+			return fmt.Errorf("profile not found: %s/%s", tool, name)
+		}
+		dir, err := m.validatedManagedProfileDir(*p)
+		if err != nil {
 			return err
 		}
-	}
-	st.Profiles = append(st.Profiles[:idx], st.Profiles[idx+1:]...)
-	if st.Defaults[tool] == name {
-		delete(st.Defaults, tool)
-		for _, prof := range st.Profiles {
-			if prof.Tool == tool {
-				st.Defaults[tool] = prof.Name
-				break
+		if purge {
+			if err := os.RemoveAll(dir); err != nil {
+				return err
 			}
 		}
-	}
-	return m.Save(st)
+
+		st.Profiles = append(st.Profiles[:idx], st.Profiles[idx+1:]...)
+		if st.Defaults[tool] == name {
+			delete(st.Defaults, tool)
+			for _, prof := range st.Profiles {
+				if prof.Tool == tool {
+					st.Defaults[tool] = prof.Name
+					break
+				}
+			}
+		}
+		return nil
+	})
 }
 
 func (m *Manager) RunTool(ctx context.Context, profile store.Profile, args []string) error {
@@ -207,6 +237,13 @@ func (m *Manager) StatusRows(ctx context.Context, filterTool *store.Tool) ([]Sta
 		if filterTool != nil && p.Tool != *filterTool {
 			continue
 		}
+		dir, err := m.validatedManagedProfileDir(p)
+		if err != nil {
+			rows = append(rows, StatusRow{Profile: p, Error: err.Error()})
+			continue
+		}
+		p.Dir = dir
+
 		ctxOne, cancel := context.WithTimeout(ctx, 8*time.Second)
 		status, sErr := m.StatusForProfile(ctxOne, p)
 		cancel()
@@ -217,6 +254,47 @@ func (m *Manager) StatusRows(ctx context.Context, filterTool *store.Tool) ([]Sta
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+func (m *Manager) expectedProfileDir(tool store.Tool, name string) (string, error) {
+	expected := store.ProfileDir(m.Root(), tool, name)
+	abs, err := filepath.Abs(expected)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(abs), nil
+}
+
+func (m *Manager) validatedManagedProfileDir(profile store.Profile) (string, error) {
+	expected, err := m.expectedProfileDir(profile.Tool, profile.Name)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(profile.Dir) == "" {
+		return "", fmt.Errorf("profile %s/%s has no directory", profile.Tool, profile.Name)
+	}
+	actual, err := filepath.Abs(profile.Dir)
+	if err != nil {
+		return "", err
+	}
+	actual = filepath.Clean(actual)
+	if !samePath(actual, expected) {
+		return "", fmt.Errorf(
+			"profile %s/%s has unsafe directory %q (expected %q)",
+			profile.Tool,
+			profile.Name,
+			profile.Dir,
+			expected,
+		)
+	}
+	return expected, nil
+}
+
+func samePath(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 func runInteractive(ctx context.Context, cmd *exec.Cmd) error {

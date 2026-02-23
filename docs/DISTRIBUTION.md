@@ -1,6 +1,6 @@
 # Distribution and Release
 
-Proflex releases are built from a Git tag (`vX.Y.Z`) and published through GitHub Actions.
+ProfileX releases are built from a Git tag (`vX.Y.Z`) and published through GitHub Actions.
 
 ## What the release workflow does
 
@@ -10,12 +10,12 @@ The release workflow (`.github/workflows/release.yml`) performs:
 2. Publish release archives and `checksums.txt`.
 3. Sign `checksums.txt` with Sigstore/cosign (keyless OIDC).
 4. Upload `checksums.txt.sig` and `checksums.txt.pem` to the release.
-5. Publish npm package `proflex-cli` when `NPM_TOKEN` is configured.
+5. Publish npm package `profilex-cli` when `NPM_TOKEN` is configured.
 
 ## Required secrets
 
 - `GITHUB_TOKEN` (provided by GitHub Actions)
-- `NPM_TOKEN` (optional, required to publish `proflex-cli`)
+- `NPM_TOKEN` (optional, required to publish `profilex-cli`)
 
 ## Installer trust model
 
@@ -26,5 +26,5 @@ Installers verify:
 
 Defaults:
 
-- Signature verification enabled (`PROFLEX_VERIFY_SIGNATURES=1`)
-- Source fallback disabled (`PROFLEX_ALLOW_SOURCE_FALLBACK=0`)
+- Signature verification enabled (`PROFILEX_VERIFY_SIGNATURES=1`)
+- Source fallback disabled (`PROFILEX_ALLOW_SOURCE_FALLBACK=0`)

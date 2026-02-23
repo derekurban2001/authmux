@@ -1,54 +1,54 @@
 # Command Reference
 
-## `proflex add <tool> <profile>`
+## `profilex add <tool> <profile>`
 
 Create profile, install shim. On first use via the shim, the tool's native auth flow runs.
 
-## `proflex list [--tool claude|codex] [--json]`
+## `profilex list [--tool claude|codex] [--json]`
 
 List profiles with status and default marker.
 
-## `proflex use <tool> <profile>`
+## `profilex use <tool> <profile>`
 
 Set default profile for a tool.
 
-## `proflex run <tool> [profile] -- [tool args...]`
+## `profilex run <tool> [profile] -- [tool args...]`
 
 Run a tool in selected/default profile context.
 
 Examples:
 
 ```bash
-proflex run claude personal -- --model sonnet
-proflex run codex -- --profile deep-review
+profilex run claude personal -- --model sonnet
+profilex run codex -- --profile deep-review
 ```
 
-## `proflex rename <tool> <old-profile> <new-profile>`
+## `profilex rename <tool> <old-profile> <new-profile>`
 
 Rename profile and move profile directory.
 
-## `proflex remove <tool> <profile> [--purge]`
+## `profilex remove <tool> <profile> [--purge]`
 
 Remove profile from registry.
 
 `--purge` also deletes profile directory.
 
-## `proflex uninstall [--purge]`
+## `profilex uninstall [--purge]`
 
-Uninstall Proflex from the local machine.
+Uninstall ProfileX from the local machine.
 
-- Removes the installed `proflex` binary when it can be resolved automatically.
-- Removes Proflex-generated shims by default.
-- `--purge` also removes Proflex state (`~/.proflex` or `PROFLEX_HOME`/`--root`).
+- Removes the installed `profilex` binary when it can be resolved automatically.
+- Removes ProfileX-generated shims by default.
+- `--purge` also removes ProfileX state (`~/.profilex` or `PROFILEX_HOME`/`--root`).
 
-## `proflex shim install [--dir <path>]`
+## `profilex shim install [--dir <path>]`
 
 Generate launcher shims for all profiles.
 
-## `proflex shim uninstall --all [--dir <path>]`
+## `profilex shim uninstall --all [--dir <path>]`
 
-Remove all Proflex-generated shims in a directory.
+Remove all ProfileX-generated shims in a directory.
 
-## `proflex shim uninstall <tool> <profile> [--dir <path>]`
+## `profilex shim uninstall <tool> <profile> [--dir <path>]`
 
 Remove one specific generated shim.

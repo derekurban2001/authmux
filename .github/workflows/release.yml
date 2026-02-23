@@ -21,7 +21,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version-file: go.mod
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -68,6 +68,6 @@ jobs:
             exit 0
           fi
           npm publish --access public
-        working-directory: packaging/npm-proflex-cli
+        working-directory: packaging/npm-profilex-cli
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,18 +1,18 @@
 {
-  "name": "proflex-cli",
+  "name": "profilex-cli",
   "version": "0.0.0-dev",
-  "description": "Proflex CLI binary installer and launcher",
+  "description": "ProfileX CLI binary installer and launcher",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/derekurban/proflex-cli.git"
+    "url": "git+https://github.com/derekurban/profilex-cli.git"
   },
-  "homepage": "https://github.com/derekurban/proflex-cli",
+  "homepage": "https://github.com/derekurban/profilex-cli",
   "bugs": {
-    "url": "https://github.com/derekurban/proflex-cli/issues"
+    "url": "https://github.com/derekurban/profilex-cli/issues"
   },
   "bin": {
-    "proflex": "bin/proflex.js"
+    "profilex": "bin/profilex.js"
   },
   "scripts": {
     "postinstall": "node scripts/postinstall.js"
@@ -28,7 +28,7 @@
     "node": ">=18"
   },
   "keywords": [
-    "proflex",
+    "profilex",
     "claude",
     "codex",
     "cli",

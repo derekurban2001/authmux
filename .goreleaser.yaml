@@ -1,17 +1,19 @@
 version: 2
 
-project_name: proflex
+project_name: profilex
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: proflex
+  - id: profilex
     main: .
-    binary: proflex
+    binary: profilex
     env:
       - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X github.com/derekurban/profilex-cli/internal/cli.version={{ .Version }}
     goos:
       - linux
       - darwin
@@ -21,9 +23,9 @@ builds:
       - arm64
 
 archives:
-  - id: proflex
+  - id: profilex
     ids:
-      - proflex
+      - profilex
     formats:
       - tar.gz
     format_overrides:

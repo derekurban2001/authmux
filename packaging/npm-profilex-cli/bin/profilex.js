@@ -32,7 +32,7 @@ function mapArch() {
 function binaryPath() {
   const os = mapPlatform();
   const arch = mapArch();
-  const execName = os === "windows" ? "proflex.exe" : "proflex";
+  const execName = os === "windows" ? "profilex.exe" : "profilex";
   return path.join(__dirname, "..", "runtime", `${os}-${arch}`, execName);
 }
 
@@ -41,19 +41,19 @@ function main() {
   try {
     bin = binaryPath();
   } catch (err) {
-    console.error(`[proflex-npm] ${err.message}`);
+    console.error(`[profilex-npm] ${err.message}`);
     process.exit(1);
   }
 
   if (!fs.existsSync(bin)) {
-    console.error("[proflex-npm] Proflex binary is missing for this platform.");
-    console.error("[proflex-npm] Reinstall with: npm i -g proflex-cli");
+    console.error("[profilex-npm] ProfileX binary is missing for this platform.");
+    console.error("[profilex-npm] Reinstall with: npm i -g profilex-cli");
     process.exit(1);
   }
 
   const child = cp.spawnSync(bin, process.argv.slice(2), { stdio: "inherit" });
   if (child.error) {
-    console.error(`[proflex-npm] Failed to launch binary: ${child.error.message}`);
+    console.error(`[profilex-npm] Failed to launch binary: ${child.error.message}`);
     process.exit(1);
   }
   process.exit(child.status ?? 1);
