@@ -66,16 +66,9 @@ func cmdUsageExport(rootDir string, args []string) error {
 		maxFiles = n
 	}
 
-	costMode := usage.CostModeAuto
-	switch strings.ToLower(strings.TrimSpace(costModeRaw)) {
-	case "", "auto":
-		costMode = usage.CostModeAuto
-	case "calculate":
-		costMode = usage.CostModeCalculate
-	case "display":
-		costMode = usage.CostModeDisplay
-	default:
-		return fmt.Errorf("invalid --cost-mode %q (expected auto|calculate|display)", costModeRaw)
+	costMode, err := parseCostMode(costModeRaw)
+	if err != nil {
+		return err
 	}
 
 	resolvedRoot, err := resolveRootDir(rootDir)
@@ -124,4 +117,17 @@ func cmdUsageExport(rootDir string, args []string) error {
 	}
 
 	return nil
+}
+
+func parseCostMode(raw string) (usage.CostMode, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "auto":
+		return usage.CostModeAuto, nil
+	case "calculate":
+		return usage.CostModeCalculate, nil
+	case "display":
+		return usage.CostModeDisplay, nil
+	default:
+		return "", fmt.Errorf("invalid --cost-mode %q (expected auto|calculate|display)", raw)
+	}
 }

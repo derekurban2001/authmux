@@ -64,6 +64,8 @@ func Run(args []string) int {
 		err = cmdShim(rootDir, rest)
 	case "usage":
 		err = cmdUsage(rootDir, rest)
+	case "sync":
+		err = cmdSync(rootDir, rest)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", cmd)
 		printHelp()
@@ -98,6 +100,7 @@ func printHelp() {
   shim install [--dir <d>]      Reinstall shims for all profiles
   shim uninstall [--all]        Remove shims
   usage export [options]        Export unified local usage bundle (for ProfileX-UI)
+  sync init|status|export       Configure and use Syncthing-targeted bundle sync
 
 %s
   --root <dir>     Override state directory (default: ~/.profilex)
