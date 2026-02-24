@@ -44,6 +44,9 @@ func TestInstallAndRemove(t *testing.T) {
 		if !strings.Contains(string(content), "shim env claude \"work\"") {
 			t.Fatalf("windows shim should load environment via profilex shim env")
 		}
+		if !strings.Contains(string(content), `for /f "usebackq delims=" %%A in ("%PROFILEX_ENV_FILE%") do set "%%A"`) {
+			t.Fatalf("windows shim should preserve double-percent escaping in FOR variable")
+		}
 		if !strings.Contains(string(content), "\nclaude %*\n") {
 			t.Fatalf("windows shim should launch claude directly")
 		}

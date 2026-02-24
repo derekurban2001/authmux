@@ -47,7 +47,7 @@ if errorlevel 1 (
   if exist "%%PROFILEX_ENV_FILE%%" del /f /q "%%PROFILEX_ENV_FILE%%" >nul 2>&1
   exit /b %%ERRORLEVEL%%
 )
-for /f "usebackq delims=" %%A in ("%%PROFILEX_ENV_FILE%%") do set "%%A"
+for /f "usebackq delims=" %%%%A in ("%%PROFILEX_ENV_FILE%%") do set "%%%%A"
 del /f /q "%%PROFILEX_ENV_FILE%%" >nul 2>&1
 %s %%*
 exit /b %%ERRORLEVEL%%
