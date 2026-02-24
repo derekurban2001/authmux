@@ -26,14 +26,12 @@ const ownershipMarkerMagic = "profilex-owned-binary-v1"
 // Returns the process exit code.
 func Run(args []string) int {
 	rootDir, args := extractFlag(args, "--root")
-
-	if len(args) == 0 {
-		printHelp()
-		return 0
+	cmd := "tui"
+	rest := []string{}
+	if len(args) > 0 {
+		cmd = args[0]
+		rest = args[1:]
 	}
-
-	cmd := args[0]
-	rest := args[1:]
 
 	if cmd == "-h" || cmd == "--help" || cmd == "help" {
 		printHelp()
@@ -89,6 +87,7 @@ func printHelp() {
 	fmt.Printf(`%s - profile manager for Claude Code & Codex CLI
 
 %s
+  profilex                         Launch interactive TUI
   profilex <command> [options]
 
 %s

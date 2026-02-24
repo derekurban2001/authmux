@@ -171,6 +171,69 @@ func (m *Manager) EnableSharedSessions(profile store.Profile) (string, error) {
 	return filepath.Clean(sharedDir), nil
 }
 
+func (m *Manager) SharedSessionsEnabled(profile store.Profile) (bool, error) {
+	profileDir, err := m.validatedManagedProfileDir(profile)
+	if err != nil {
+		return false, err
+	}
+	leaf, err := sessionLeafForTool(profile.Tool)
+	if err != nil {
+		return false, err
+	}
+
+	sharedDir := filepath.Clean(filepath.Join(m.Root(), "shared", string(profile.Tool), leaf))
+	mountPath := filepath.Join(profileDir, leaf)
+	if _, err := os.Lstat(mountPath); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	resolved, err := filepath.EvalSymlinks(mountPath)
+	if err != nil {
+		return false, nil
+	}
+	resolved = filepath.Clean(resolved)
+	return samePath(resolved, sharedDir), nil
+}
+
+func (m *Manager) DisableSharedSessions(profile store.Profile) error {
+	profileDir, err := m.validatedManagedProfileDir(profile)
+	if err != nil {
+		return err
+	}
+	leaf, err := sessionLeafForTool(profile.Tool)
+	if err != nil {
+		return err
+	}
+
+	mountPath := filepath.Join(profileDir, leaf)
+	info, err := os.Lstat(mountPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return os.MkdirAll(mountPath, 0o755)
+		}
+		return err
+	}
+	if !info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+		return fmt.Errorf("%s exists and is not a directory", mountPath)
+	}
+
+	shared, err := m.SharedSessionsEnabled(profile)
+	if err != nil {
+		return err
+	}
+	if !shared {
+		return nil
+	}
+
+	if err := removeDirLink(mountPath); err != nil {
+		return err
+	}
+	return os.MkdirAll(mountPath, 0o755)
+}
+
 func (m *Manager) GetProfile(st *store.State, tool store.Tool, name string) (store.Profile, error) {
 	_, p := store.FindProfile(st, tool, name)
 	if p == nil {
@@ -392,6 +455,21 @@ func createDirLink(target, linkPath string) error {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("mklink failed: %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func removeDirLink(linkPath string) error {
+	if err := os.Remove(linkPath); err == nil {
+		return nil
+	} else if runtime.GOOS != "windows" {
+		return err
+	}
+
+	cmd := exec.Command("cmd", "/C", "rmdir", linkPath)
+	out, cmdErr := cmd.CombinedOutput()
+	if cmdErr != nil {
+		return fmt.Errorf("rmdir failed: %v (%s)", cmdErr, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

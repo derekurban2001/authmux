@@ -339,6 +339,86 @@ func (m *Manager) ListSettings(tool *store.Tool) ([]store.SettingsPreset, []stor
 	return presets, syncs, nil
 }
 
+func (m *Manager) RenameSettingsPreset(tool store.Tool, oldName, newName string) error {
+	if err := store.ValidatePresetName(newName); err != nil {
+		return err
+	}
+	if strings.EqualFold(strings.TrimSpace(oldName), strings.TrimSpace(newName)) {
+		return nil
+	}
+
+	oldDir, err := m.expectedPresetDir(tool, oldName)
+	if err != nil {
+		return err
+	}
+	newDir, err := m.expectedPresetDir(tool, newName)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(oldDir); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("settings preset not found: %s/%s", tool, oldName)
+		}
+		return err
+	}
+	if _, err := os.Stat(newDir); err == nil {
+		return fmt.Errorf("target preset already exists: %s/%s", tool, newName)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(newDir), 0o755); err != nil {
+		return err
+	}
+	if err := os.Rename(oldDir, newDir); err != nil {
+		return err
+	}
+
+	return m.store.Update(func(st *store.State) error {
+		idx, p := store.FindSettingsPreset(st, tool, oldName)
+		if p == nil {
+			return fmt.Errorf("settings preset not found in state: %s/%s", tool, oldName)
+		}
+		st.SettingsPresets[idx].Name = newName
+		st.SettingsPresets[idx].UpdatedAt = time.Now().UTC()
+		for i := range st.SettingsSync {
+			if st.SettingsSync[i].Tool == tool && st.SettingsSync[i].Preset == oldName {
+				st.SettingsSync[i].Preset = newName
+				st.SettingsSync[i].UpdatedAt = time.Now().UTC()
+			}
+		}
+		return nil
+	})
+}
+
+func (m *Manager) DeleteSettingsPreset(tool store.Tool, name string) error {
+	dir, err := m.expectedPresetDir(tool, name)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(dir); err == nil {
+		if rmErr := os.RemoveAll(dir); rmErr != nil {
+			return rmErr
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	return m.store.Update(func(st *store.State) error {
+		if idx, p := store.FindSettingsPreset(st, tool, name); p != nil {
+			st.SettingsPresets = append(st.SettingsPresets[:idx], st.SettingsPresets[idx+1:]...)
+		}
+		filtered := st.SettingsSync[:0]
+		for _, s := range st.SettingsSync {
+			if s.Tool == tool && s.Preset == name {
+				continue
+			}
+			filtered = append(filtered, s)
+		}
+		st.SettingsSync = filtered
+		return nil
+	})
+}
+
 func syncPath(src, dst string) error {
 	info, err := os.Stat(src)
 	if err != nil {

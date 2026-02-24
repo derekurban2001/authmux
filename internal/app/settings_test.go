@@ -173,11 +173,11 @@ func TestSnapshotFromNativeDefaultAlias(t *testing.T) {
 
 func TestApplyToNativeDefaultAlias(t *testing.T) {
 	m := newTestManager(t)
-	p, _, err := m.EnsureProfile(store.ToolCodex, "source")
+	profile, _, err := m.EnsureProfile(store.ToolCodex, "source")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(p.Dir, "config.toml"), []byte("model = \"from-profile\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(profile.Dir, "config.toml"), []byte("model = \"from-profile\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -187,7 +187,7 @@ func TestApplyToNativeDefaultAlias(t *testing.T) {
 	}
 	t.Setenv("PROFILEX_NATIVE_CODEX_HOME", nativeDir)
 
-	if _, err := m.SnapshotSettings(store.ToolCodex, p.Name, "preset-a"); err != nil {
+	if _, err := m.SnapshotSettings(store.ToolCodex, profile.Name, "preset-a"); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.ApplySettingsPreset(store.ToolCodex, "preset-a", "native"); err != nil {
@@ -251,5 +251,69 @@ func TestSyncMappingToNativeDefaultAlias(t *testing.T) {
 	}
 	if string(got) != "model = \"v2\"\n" {
 		t.Fatalf("expected native sync update, got %q", string(got))
+	}
+}
+
+func TestRenameSettingsPresetUpdatesSyncBindings(t *testing.T) {
+	m := newTestManager(t)
+	profile, _, err := m.EnsureProfile(store.ToolCodex, "source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profile.Dir, "config.toml"), []byte("model = \"x\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SnapshotSettings(store.ToolCodex, profile.Name, "template-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetSettingsSync(store.ToolCodex, profile.Name, "template-a", true); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.RenameSettingsPreset(store.ToolCodex, "template-a", "template-b"); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := m.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, p := store.FindSettingsPreset(st, store.ToolCodex, "template-b"); p == nil {
+		t.Fatalf("expected renamed preset to exist")
+	}
+	if _, sync := store.FindSettingsSync(st, store.ToolCodex, profile.Name); sync == nil || sync.Preset != "template-b" {
+		t.Fatalf("expected sync binding to track renamed preset")
+	}
+}
+
+func TestDeleteSettingsPresetRemovesSyncBindings(t *testing.T) {
+	m := newTestManager(t)
+	profile, _, err := m.EnsureProfile(store.ToolCodex, "source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profile.Dir, "config.toml"), []byte("model = \"x\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SnapshotSettings(store.ToolCodex, profile.Name, "template-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetSettingsSync(store.ToolCodex, profile.Name, "template-a", true); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.DeleteSettingsPreset(store.ToolCodex, "template-a"); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := m.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, p := store.FindSettingsPreset(st, store.ToolCodex, "template-a"); p != nil {
+		t.Fatalf("expected preset to be deleted")
+	}
+	if _, sync := store.FindSettingsSync(st, store.ToolCodex, profile.Name); sync != nil {
+		t.Fatalf("expected sync binding to be removed with preset")
 	}
 }

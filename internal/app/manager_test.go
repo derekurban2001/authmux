@@ -306,6 +306,44 @@ func TestEnableSharedSessionsRejectsNonEmptyLocalDir(t *testing.T) {
 	}
 }
 
+func TestDisableSharedSessionsRemovesMount(t *testing.T) {
+	m := newTestManager(t)
+	p, _, err := m.EnsureProfile(store.ToolCodex, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.EnableSharedSessions(p); err != nil {
+		t.Fatal(err)
+	}
+	enabled, err := m.SharedSessionsEnabled(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !enabled {
+		t.Fatalf("expected shared sessions to be enabled")
+	}
+
+	if err := m.DisableSharedSessions(p); err != nil {
+		t.Fatal(err)
+	}
+	enabled, err = m.SharedSessionsEnabled(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enabled {
+		t.Fatalf("expected shared sessions to be disabled")
+	}
+
+	mount := filepath.Join(p.Dir, "sessions")
+	info, err := os.Lstat(mount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected local sessions dir after disable")
+	}
+}
+
 func TestRenameProfileAlsoUpdatesSettingsSyncBinding(t *testing.T) {
 	m := newTestManager(t)
 	p, _, err := m.EnsureProfile(store.ToolCodex, "old")
