@@ -49,7 +49,7 @@ if errorlevel 1 (
 )
 for /f "usebackq delims=" %%%%A in ("%%PROFILEX_ENV_FILE%%") do set "%%%%A"
 del /f /q "%%PROFILEX_ENV_FILE%%" >nul 2>&1
-%s %%*
+call %s %%*
 exit /b %%ERRORLEVEL%%
 `,
 			marker,

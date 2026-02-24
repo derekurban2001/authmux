@@ -47,8 +47,8 @@ func TestInstallAndRemove(t *testing.T) {
 		if !strings.Contains(string(content), `for /f "usebackq delims=" %%A in ("%PROFILEX_ENV_FILE%") do set "%%A"`) {
 			t.Fatalf("windows shim should preserve double-percent escaping in FOR variable")
 		}
-		if !strings.Contains(string(content), "\nclaude %*\n") {
-			t.Fatalf("windows shim should launch claude directly")
+		if !strings.Contains(string(content), "\ncall claude %*\n") {
+			t.Fatalf("windows shim should launch claude through call for cmd-wrapper compatibility")
 		}
 	} else {
 		if !strings.Contains(string(content), "printf '\\033]0;claude-work\\007'") {
