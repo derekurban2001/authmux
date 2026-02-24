@@ -104,10 +104,42 @@ Use `--isolated` with `profilex add` to opt out for a profile.
 - `profilex list [--tool claude|codex] [--json]` — List profiles with status
 - `profilex use <tool> <profile>` — Set default profile
 - `profilex rename <tool> <old> <new>` — Rename a profile
-- `profilex run <tool> [profile] -- [args...]` — Run tool with profile context
+- `profilex settings <subcommand>` - Snapshot/apply/sync tool-native settings presets (auth untouched)
+- `profilex tui` - Launch interactive terminal UI
 - `profilex shim install [--dir <path>]` — Reinstall all shims
 - `profilex shim uninstall [--all] [<tool> <profile>]` — Remove shims
 - `profilex usage export [--out <file>] [--deep]` — Export unified usage bundle for ProfileX-UI
+
+### Settings snapshots and sync
+
+ProfileX can capture tool-native settings from one profile and apply/sync them to others while auth remains isolated.
+
+```bash
+# Capture current settings from source profile into preset "full-access"
+profilex settings snapshot codex personal2 full-access
+
+# Apply the preset to another profile
+profilex settings apply codex full-access personal1
+
+# Keep a profile synced to that preset
+profilex settings sync codex full-access personal1
+
+# Remove sync mapping
+profilex settings unsync codex personal1
+
+# Pull from native default Codex config (~/.codex)
+profilex settings snapshot codex default baseline
+
+# Apply a preset to native default Claude config (~/.claude or ~/.config/claude)
+profilex settings apply claude baseline default
+```
+
+Current settings allowlist:
+
+- Codex: `config.toml`
+- Claude: `settings.json`
+
+Supported native aliases: `default`, `native`, `@default`, `@native`
 
 ### Unified usage export for ProfileX-UI
 
@@ -155,3 +187,4 @@ go vet ./...
 ## License
 
 MIT
+

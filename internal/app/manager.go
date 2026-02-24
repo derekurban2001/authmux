@@ -239,6 +239,10 @@ func (m *Manager) RenameProfile(tool store.Tool, oldName, newName string) error 
 		if st.Defaults[tool] == oldName {
 			st.Defaults[tool] = newName
 		}
+		if syncIdx, sync := store.FindSettingsSync(st, tool, oldName); sync != nil {
+			st.SettingsSync[syncIdx].Profile = newName
+			st.SettingsSync[syncIdx].UpdatedAt = time.Now().UTC()
+		}
 		return nil
 	})
 }
@@ -268,6 +272,9 @@ func (m *Manager) RemoveProfile(tool store.Tool, name string, purge bool) error 
 					break
 				}
 			}
+		}
+		if syncIdx, sync := store.FindSettingsSync(st, tool, name); sync != nil {
+			st.SettingsSync = append(st.SettingsSync[:syncIdx], st.SettingsSync[syncIdx+1:]...)
 		}
 		return nil
 	})

@@ -42,10 +42,26 @@ type Profile struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type SettingsPreset struct {
+	Tool      Tool      `json:"tool"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type SettingsSync struct {
+	Tool      Tool      `json:"tool"`
+	Profile   string    `json:"profile"`
+	Preset    string    `json:"preset"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type State struct {
-	Version  int             `json:"version"`
-	Defaults map[Tool]string `json:"defaults"`
-	Profiles []Profile       `json:"profiles"`
+	Version         int              `json:"version"`
+	Defaults        map[Tool]string  `json:"defaults"`
+	Profiles        []Profile        `json:"profiles"`
+	SettingsPresets []SettingsPreset `json:"settings_presets,omitempty"`
+	SettingsSync    []SettingsSync   `json:"settings_sync,omitempty"`
 }
 
 type Store struct {
@@ -151,6 +167,10 @@ func ValidateProfileName(name string) error {
 	return nil
 }
 
+func ValidatePresetName(name string) error {
+	return ValidateProfileName(name)
+}
+
 func ProfileDir(root string, tool Tool, name string) string {
 	return filepath.Join(root, "profiles", string(tool), name)
 }
@@ -173,11 +193,33 @@ func DefaultProfile(st *State, tool Tool) (string, bool) {
 	return v, true
 }
 
+func FindSettingsPreset(st *State, tool Tool, name string) (int, *SettingsPreset) {
+	for i := range st.SettingsPresets {
+		p := &st.SettingsPresets[i]
+		if p.Tool == tool && p.Name == name {
+			return i, p
+		}
+	}
+	return -1, nil
+}
+
+func FindSettingsSync(st *State, tool Tool, profile string) (int, *SettingsSync) {
+	for i := range st.SettingsSync {
+		b := &st.SettingsSync[i]
+		if b.Tool == tool && b.Profile == profile {
+			return i, b
+		}
+	}
+	return -1, nil
+}
+
 func defaultState() *State {
 	return &State{
-		Version:  1,
-		Defaults: map[Tool]string{},
-		Profiles: []Profile{},
+		Version:         1,
+		Defaults:        map[Tool]string{},
+		Profiles:        []Profile{},
+		SettingsPresets: []SettingsPreset{},
+		SettingsSync:    []SettingsSync{},
 	}
 }
 
@@ -188,12 +230,30 @@ func normalizeState(st *State) {
 	if st.Profiles == nil {
 		st.Profiles = []Profile{}
 	}
+	if st.SettingsPresets == nil {
+		st.SettingsPresets = []SettingsPreset{}
+	}
+	if st.SettingsSync == nil {
+		st.SettingsSync = []SettingsSync{}
+	}
 	st.Version = 1
 	sort.Slice(st.Profiles, func(i, j int) bool {
 		if st.Profiles[i].Tool == st.Profiles[j].Tool {
 			return st.Profiles[i].Name < st.Profiles[j].Name
 		}
 		return st.Profiles[i].Tool < st.Profiles[j].Tool
+	})
+	sort.Slice(st.SettingsPresets, func(i, j int) bool {
+		if st.SettingsPresets[i].Tool == st.SettingsPresets[j].Tool {
+			return st.SettingsPresets[i].Name < st.SettingsPresets[j].Name
+		}
+		return st.SettingsPresets[i].Tool < st.SettingsPresets[j].Tool
+	})
+	sort.Slice(st.SettingsSync, func(i, j int) bool {
+		if st.SettingsSync[i].Tool == st.SettingsSync[j].Tool {
+			return st.SettingsSync[i].Profile < st.SettingsSync[j].Profile
+		}
+		return st.SettingsSync[i].Tool < st.SettingsSync[j].Tool
 	})
 }
 

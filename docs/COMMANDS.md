@@ -26,6 +26,42 @@ profilex run claude personal -- --model sonnet
 profilex run codex -- --profile deep-review
 ```
 
+## `profilex settings snapshot <tool> <profile|default> <preset>`
+
+Capture tool-native settings from a profile into a named preset.
+
+Current settings allowlist:
+
+- `codex`: `config.toml`
+- `claude`: `settings.json`
+
+## `profilex settings apply <tool> <preset> <profile|default>`
+
+Apply a named settings preset to a target profile.
+
+## `profilex settings sync <tool> <preset> <profile|default>`
+
+Enable ongoing sync for one profile to one preset. The preset is applied immediately.
+
+## `profilex settings unsync <tool> <profile|default>`
+
+Disable settings sync for a profile.
+
+## `profilex settings list [--tool claude|codex] [--json]`
+
+List settings presets and current profile sync mappings.
+
+Special profile aliases:
+
+- `default`
+- `native`
+- `@default`
+- `@native`
+
+## `profilex tui`
+
+Launch the interactive terminal UI for profile and settings management.
+
 ## `profilex rename <tool> <old-profile> <new-profile>`
 
 Rename profile and move profile directory.
@@ -72,4 +108,3 @@ Options:
 
 - `--deep` expands scan to broader home-directory candidates
 - `--cost-mode` accepts `auto|calculate|display`
-

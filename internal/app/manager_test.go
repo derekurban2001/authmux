@@ -305,3 +305,62 @@ func TestEnableSharedSessionsRejectsNonEmptyLocalDir(t *testing.T) {
 		t.Fatalf("expected non-empty local session dir to be rejected")
 	}
 }
+
+func TestRenameProfileAlsoUpdatesSettingsSyncBinding(t *testing.T) {
+	m := newTestManager(t)
+	p, _, err := m.EnsureProfile(store.ToolCodex, "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.Dir, "config.toml"), []byte("model = \"x\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SnapshotSettings(store.ToolCodex, "old", "preset1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetSettingsSync(store.ToolCodex, "old", "preset1", true); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.RenameProfile(store.ToolCodex, "old", "new"); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := m.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, binding := store.FindSettingsSync(st, store.ToolCodex, "new")
+	if binding == nil || binding.Preset != "preset1" {
+		t.Fatalf("expected sync binding to follow rename")
+	}
+}
+
+func TestRemoveProfileAlsoRemovesSettingsSyncBinding(t *testing.T) {
+	m := newTestManager(t)
+	p, _, err := m.EnsureProfile(store.ToolCodex, "target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.Dir, "config.toml"), []byte("model = \"x\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SnapshotSettings(store.ToolCodex, "target", "preset1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetSettingsSync(store.ToolCodex, "target", "preset1", true); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.RemoveProfile(store.ToolCodex, "target", false); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := m.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, binding := store.FindSettingsSync(st, store.ToolCodex, "target"); binding != nil {
+		t.Fatalf("sync binding should be removed with profile")
+	}
+}

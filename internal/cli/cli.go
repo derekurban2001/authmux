@@ -64,6 +64,10 @@ func Run(args []string) int {
 		err = cmdShim(rootDir, rest)
 	case "usage":
 		err = cmdUsage(rootDir, rest)
+	case "settings":
+		err = cmdSettings(rootDir, rest)
+	case "tui":
+		err = cmdTUI(rootDir, rest)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", cmd)
 		printHelp()
@@ -95,8 +99,10 @@ func printHelp() {
   use <tool> <profile>          Set the default profile for a tool
   rename <tool> <old> <new>     Rename a profile
   run <tool> [profile] -- ...   Run a tool with the given profile
+  settings <subcommand>         Manage settings snapshots/presets/sync
   shim install [--dir <d>]      Reinstall shims for all profiles
   shim uninstall [--all]        Remove shims
+  tui                           Launch interactive terminal UI
   usage export [options]        Export unified local usage bundle (for ProfileX-UI)
 
 %s
@@ -496,6 +502,9 @@ func cmdRun(rootDir string, args []string) error {
 
 	profile, err := mgr.ResolveProfile(st, tool, profileOptional)
 	if err != nil {
+		return err
+	}
+	if _, _, err := mgr.ApplySyncedSettings(profile); err != nil {
 		return err
 	}
 

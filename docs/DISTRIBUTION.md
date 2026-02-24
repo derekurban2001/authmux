@@ -17,6 +17,36 @@ The release workflow (`.github/workflows/release.yml`) performs:
 - `GITHUB_TOKEN` (provided by GitHub Actions)
 - `NPM_TOKEN` (optional, required to publish `profilex-cli`)
 
+## Bump, tag, and push helper
+
+You can create and push the next release tag with helper scripts:
+
+- PowerShell: `scripts/release/bump-tag.ps1`
+- Bash: `scripts/release/bump-tag.sh`
+
+Examples:
+
+```powershell
+./scripts/release/bump-tag.ps1 --patch
+./scripts/release/bump-tag.ps1 --minor --dry-run
+./scripts/release/bump-tag.ps1 --major --remote origin
+```
+
+```bash
+./scripts/release/bump-tag.sh --patch
+./scripts/release/bump-tag.sh --minor --dry-run
+./scripts/release/bump-tag.sh --major --remote origin
+```
+
+Behavior:
+
+1. Optionally fetches tags from remote.
+2. Calculates the next semver tag from latest `vX.Y.Z`.
+3. Creates an annotated tag (`release vX.Y.Z`).
+4. Pushes current branch and the new tag.
+
+By default it requires a clean working tree. Use `--allow-dirty` to override.
+
 ## Installer trust model
 
 Installers verify:
