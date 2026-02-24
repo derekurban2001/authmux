@@ -100,6 +100,17 @@ function defaultCosignIdentityRegex(repo) {
   return `^https://github.com/${repo}/.github/workflows/release.yml@refs/tags/.*$`;
 }
 
+function defaultCosignCacheDir(platform) {
+  if (platform === "windows") {
+    const localAppData = process.env.LOCALAPPDATA;
+    if (localAppData && localAppData.trim() !== "") {
+      return path.join(localAppData, "profilex", "cache", "cosign");
+    }
+    return path.join(os.homedir(), "AppData", "Local", "profilex", "cache", "cosign");
+  }
+  return path.join(os.homedir(), ".cache", "profilex", "cosign");
+}
+
 async function ensureCosign(tempDir, platform, arch) {
   const existing = cp.spawnSync("cosign", ["version"], { stdio: "ignore" });
   if (!existing.error && existing.status === 0) {
@@ -109,10 +120,34 @@ async function ensureCosign(tempDir, platform, arch) {
   const cosignVersion = process.env.PROFILEX_COSIGN_VERSION || "v2.5.3";
   const suffix = platform === "windows" ? ".exe" : "";
   const asset = `cosign-${platform}-${arch}${suffix}`;
-  const outFile = path.join(tempDir, asset);
+  const outFile = path.join(tempDir, `${asset}.download`);
+  const cacheRoot = process.env.PROFILEX_COSIGN_CACHE_DIR || defaultCosignCacheDir(platform);
+  const cacheFile = path.join(cacheRoot, cosignVersion, asset);
+  try {
+    if (fs.existsSync(cacheFile) && fs.statSync(cacheFile).size > 0) {
+      console.log(`[profilex-npm] using cached cosign ${cosignVersion}`);
+      return cacheFile;
+    }
+    if (fs.existsSync(cacheFile)) {
+      fs.rmSync(cacheFile, { force: true });
+    }
+  } catch {
+    // Fall through to download path.
+  }
   const url = `https://github.com/sigstore/cosign/releases/download/${cosignVersion}/${asset}`;
   console.log(`[profilex-npm] cosign not found; downloading ${cosignVersion}`);
   await fetchToFile(url, outFile);
+  try {
+    fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+    fs.copyFileSync(outFile, cacheFile);
+    if (platform !== "windows") {
+      fs.chmodSync(cacheFile, 0o755);
+    }
+    console.log(`[profilex-npm] cached cosign ${cosignVersion}`);
+    return cacheFile;
+  } catch {
+    // If caching fails, still use downloaded binary from temp dir.
+  }
   if (platform !== "windows") {
     fs.chmodSync(outFile, 0o755);
   }

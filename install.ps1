@@ -30,6 +30,7 @@ $VerifySignaturesRaw = Get-EnvValue -Names @("PROFILEX_VERIFY_SIGNATURES", "PROF
 $AllowSourceFallbackRaw = Get-EnvValue -Names @("PROFILEX_ALLOW_SOURCE_FALLBACK", "PROFLEX_ALLOW_SOURCE_FALLBACK") -Default "0"
 $AutoInstallGoRaw = Get-EnvValue -Names @("PROFILEX_AUTO_INSTALL_GO", "PROFLEX_AUTO_INSTALL_GO") -Default "1"
 $CosignVersion = Get-EnvValue -Names @("PROFILEX_COSIGN_VERSION", "PROFLEX_COSIGN_VERSION") -Default "v2.5.3"
+$CosignCacheDir = Get-EnvValue -Names @("PROFILEX_COSIGN_CACHE_DIR", "PROFLEX_COSIGN_CACHE_DIR") -Default ""
 $DefaultCosignIdentityRegex = if ($Repo -eq $OfficialRepo -or $Repo -eq $LegacyRepo) {
   "^https://github.com/(derekurban/profilex-cli|derekurban2001/profilex-cli)/.github/workflows/release.yml@refs/tags/.*$"
 } else {
@@ -223,6 +224,33 @@ function Write-OwnershipMarker {
   Write-Log "Wrote ownership marker $markerPath"
 }
 
+function Resolve-CosignCacheDir {
+  if (-not [string]::IsNullOrWhiteSpace($CosignCacheDir)) {
+    return $CosignCacheDir
+  }
+
+  $base = $env:LOCALAPPDATA
+  if ([string]::IsNullOrWhiteSpace($base)) {
+    if (-not [string]::IsNullOrWhiteSpace($HOME)) {
+      $base = Join-Path $HOME "AppData\Local"
+    } else {
+      return $null
+    }
+  }
+
+  return Join-Path $base "profilex\cache\cosign"
+}
+
+function Get-CachedCosignPath {
+  param([Parameter(Mandatory = $true)][string]$Arch)
+  $cacheDir = Resolve-CosignCacheDir
+  if ([string]::IsNullOrWhiteSpace($cacheDir)) {
+    return $null
+  }
+  $asset = "cosign-windows-$Arch.exe"
+  return Join-Path (Join-Path $cacheDir $CosignVersion) $asset
+}
+
 function Ensure-Cosign {
   param(
     [Parameter(Mandatory = $true)][string]$Arch,
@@ -236,10 +264,32 @@ function Ensure-Cosign {
 
   $asset = "cosign-windows-$Arch.exe"
   $url = "https://github.com/sigstore/cosign/releases/download/$CosignVersion/$asset"
-  $outFile = Join-Path $TempDir $asset
+  $cachedPath = Get-CachedCosignPath -Arch $Arch
+  if (-not [string]::IsNullOrWhiteSpace($cachedPath) -and (Test-Path $cachedPath)) {
+    $cachedInfo = Get-Item -LiteralPath $cachedPath -ErrorAction SilentlyContinue
+    if ($null -ne $cachedInfo -and $cachedInfo.Length -gt 0) {
+      Write-Log "Using cached cosign binary: $cachedPath"
+      return $cachedPath
+    }
+    Remove-Item -LiteralPath $cachedPath -Force -ErrorAction SilentlyContinue
+  }
+
+  $outFile = Join-Path $TempDir "$asset.download"
 
   Write-Log "cosign not found; downloading $CosignVersion (windows/$Arch)"
   Invoke-Download -Url $url -OutFile $outFile
+
+  if (-not [string]::IsNullOrWhiteSpace($cachedPath)) {
+    try {
+      New-Item -Path (Split-Path -Path $cachedPath -Parent) -ItemType Directory -Force | Out-Null
+      Copy-Item -Path $outFile -Destination $cachedPath -Force
+      Write-Log "Cached cosign binary: $cachedPath"
+      return $cachedPath
+    } catch {
+      Write-WarnMessage "Could not cache cosign binary: $($_.Exception.Message)"
+    }
+  }
+
   return $outFile
 }
 

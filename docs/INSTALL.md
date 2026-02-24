@@ -30,6 +30,7 @@ Environment variables:
 - `PROFILEX_ALLOW_SOURCE_FALLBACK`: `0` (default) disable fallback to `go install`; set to `1` to enable
 - `PROFILEX_AUTO_INSTALL_GO`: `1` (default) auto-install Go if source fallback is enabled and Go is missing
 - `PROFILEX_COSIGN_VERSION`: cosign version used if cosign is not on PATH (default `v2.5.3`)
+- `PROFILEX_COSIGN_CACHE_DIR`: optional cache dir for downloaded cosign binaries (default Windows: `%LOCALAPPDATA%\profilex\cache\cosign`)
 - `PROFILEX_COSIGN_IDENTITY_RE`: certificate identity regex for `cosign verify-blob`
 - `PROFILEX_COSIGN_OIDC_ISSUER`: OIDC issuer for `cosign verify-blob`
 
