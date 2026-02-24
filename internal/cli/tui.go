@@ -47,12 +47,15 @@ type tuiOpMsg struct {
 	Refresh bool
 }
 
+func (m tuiOpMsg) IsError() bool { return m.Err != nil }
+
 type exportResultMsg struct {
 	Err    error
 	Result exportResult
 }
 
 type exportTickMsg struct{}
+type statusClearMsg struct{}
 
 type exportResult struct {
 	Out      string
@@ -77,6 +80,7 @@ const (
 type model struct {
 	rootDir string
 	width   int
+	height  int
 
 	state         *store.State
 	presets       []store.SettingsPreset
@@ -86,6 +90,9 @@ type model struct {
 
 	sidebar []sidebarItem
 	cursor  int
+
+	welcomeActive bool
+	wizardStep    int // -1=inactive, 0=tool, 1=name, 2=options, 3=confirm
 
 	addToolIdx   int
 	addNameInput textinput.Model
@@ -107,8 +114,9 @@ type model struct {
 	prompt     textinput.Model
 	applyIndex int
 
-	info string
-	err  string
+	statusMsg     string
+	statusIsError bool
+	statusExpiry  time.Time
 }
 
 func cmdTUI(rootDir string, args []string) error {
@@ -147,9 +155,12 @@ func newModel(rootDir string) model {
 	return model{
 		rootDir:         rootDir,
 		width:           120,
+		height:          24,
 		syncByProfile:   map[string]string{},
 		sessionShared:   map[string]bool{},
 		skillsShared:    map[string]bool{},
+		welcomeActive:   true,
+		wizardStep:      -1,
 		addShare:        true,
 		addSync:         true,
 		addSkills:       true,
@@ -172,6 +183,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Width > 0 {
 			m.width = msg.Width
 		}
+		if msg.Height > 0 {
+			m.height = msg.Height
+		}
 		return m, nil
 	case tuiDataMsg:
 		m.state, m.presets, m.syncByProfile, m.sessionShared, m.skillsShared = msg.State, msg.Presets, msg.SyncByProfile, msg.SessionShared, msg.SkillsShared
@@ -188,27 +202,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.applyIndex >= len(applyOpts) {
 			m.applyIndex = max(0, len(applyOpts)-1)
 		}
+		// Auto-dismiss welcome screen if profiles exist
+		if m.welcomeActive && msg.State != nil && len(msg.State.Profiles) > 0 {
+			m.welcomeActive = false
+			m.wizardStep = -1
+		}
 		return m, nil
 	case tuiOpMsg:
-		if msg.Err != nil {
-			m.err, m.info = msg.Err.Error(), ""
-		} else {
-			m.err, m.info = "", msg.Info
-		}
 		m.mode = modeNormal
+		if msg.Err != nil {
+			m.statusMsg = msg.Err.Error()
+			m.statusIsError = true
+		} else if msg.Info != "" {
+			m.statusMsg = msg.Info
+			m.statusIsError = false
+		}
+		m.statusExpiry = time.Now().Add(5 * time.Second)
+		var cmds []tea.Cmd
 		if msg.Refresh {
-			return m, refreshCmd(m.rootDir)
+			cmds = append(cmds, refreshCmd(m.rootDir))
+		}
+		cmds = append(cmds, tea.Tick(5*time.Second, func(time.Time) tea.Msg { return statusClearMsg{} }))
+		if msg.Refresh && !msg.IsError() && m.wizardStep >= 0 {
+			m.wizardStep = -1
+			m.addNameInput.SetValue("")
+		}
+		return m, tea.Batch(cmds...)
+	case statusClearMsg:
+		if !m.statusExpiry.IsZero() && time.Now().After(m.statusExpiry) {
+			m.statusMsg = ""
 		}
 		return m, nil
 	case exportResultMsg:
 		m.exportRunning = false
 		if msg.Err != nil {
-			m.err, m.info = msg.Err.Error(), ""
-			return m, nil
+			m.statusMsg = msg.Err.Error()
+			m.statusIsError = true
+		} else {
+			m.lastExport = &msg.Result
+			m.statusMsg = "Usage export complete"
+			m.statusIsError = false
 		}
-		m.lastExport = &msg.Result
-		m.err, m.info = "", "Usage export complete"
-		return m, nil
+		m.statusExpiry = time.Now().Add(5 * time.Second)
+		return m, tea.Tick(5*time.Second, func(time.Time) tea.Msg { return statusClearMsg{} })
 	case exportTickMsg:
 		if m.exportRunning {
 			m.exportElapsed = time.Since(m.exportStarted)
@@ -221,8 +257,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	if key.String() == "q" || key.String() == "ctrl+c" {
+	if key.String() == "ctrl+c" {
 		return m, tea.Quit
+	}
+
+	// Welcome screen: only Enter or q
+	if m.welcomeActive {
+		switch key.String() {
+		case "q":
+			return m, tea.Quit
+		case "enter":
+			m.welcomeActive = false
+			m.wizardStep = 0
+			// Move cursor to Add Profile
+			for i, it := range m.sidebar {
+				if it.Kind == sidebarAdd {
+					m.cursor = i
+					break
+				}
+			}
+			return m, nil
+		}
+		return m, nil
+	}
+
+	if key.String() == "q" {
+		// Don't quit while typing in text inputs
+		if m.wizardStep == 1 {
+			return m, nil
+		}
+		return m, tea.Quit
+	}
+
+	// Wizard navigation
+	if m.wizardStep >= 0 {
+		return m.updateAddWizard(key)
 	}
 
 	if m.mode != modeNormal {
@@ -253,33 +322,89 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateAdd(key tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch key.String() {
-	case "[", "left":
-		m.addToolIdx = (m.addToolIdx + len(store.SupportedTools) - 1) % len(store.SupportedTools)
+	// When Add Profile is selected and no wizard is active, start the wizard
+	if key.String() == "enter" && m.wizardStep < 0 {
+		m.wizardStep = 0
+		m.addToolIdx = 0
+		m.addNameInput.SetValue("")
+		m.addShare = true
+		m.addSync = true
+		m.addSkills = true
 		return m, nil
-	case "]", "right":
-		m.addToolIdx = (m.addToolIdx + 1) % len(store.SupportedTools)
-		return m, nil
-	case "s":
-		m.addShare = !m.addShare
-		return m, nil
-	case "c":
-		m.addSync = !m.addSync
-		return m, nil
-	case "k":
-		m.addSkills = !m.addSkills
-		return m, nil
-	case "enter":
-		name := strings.TrimSpace(m.addNameInput.Value())
-		if name == "" {
-			m.err = "profile name is required"
+	}
+	return m, nil
+}
+
+func (m model) updateAddWizard(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.wizardStep {
+	case 0: // Tool selection
+		switch key.String() {
+		case "up", "k":
+			m.addToolIdx = (m.addToolIdx + len(store.SupportedTools) - 1) % len(store.SupportedTools)
+			return m, nil
+		case "down", "j":
+			m.addToolIdx = (m.addToolIdx + 1) % len(store.SupportedTools)
+			return m, nil
+		case "enter":
+			m.wizardStep = 1
+			m.addNameInput.Focus()
+			return m, nil
+		case "esc":
+			m.wizardStep = -1
 			return m, nil
 		}
-		return m, addProfileCmd(m.rootDir, store.SupportedTools[m.addToolIdx], name, m.addShare, m.addSync, m.addSkills)
+		return m, nil
+	case 1: // Name input
+		switch key.String() {
+		case "enter":
+			name := strings.TrimSpace(m.addNameInput.Value())
+			if name == "" {
+				m.statusMsg = "profile name is required"
+				m.statusIsError = true
+				m.statusExpiry = time.Now().Add(5 * time.Second)
+				return m, tea.Tick(5*time.Second, func(time.Time) tea.Msg { return statusClearMsg{} })
+			}
+			m.wizardStep = 2
+			return m, nil
+		case "esc":
+			m.wizardStep = 0
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.addNameInput, cmd = m.addNameInput.Update(key)
+		return m, cmd
+	case 2: // Options
+		switch key.String() {
+		case "s":
+			m.addShare = !m.addShare
+			return m, nil
+		case "c":
+			m.addSync = !m.addSync
+			return m, nil
+		case "k":
+			m.addSkills = !m.addSkills
+			return m, nil
+		case "enter":
+			m.wizardStep = 3
+			return m, nil
+		case "esc":
+			m.wizardStep = 1
+			m.addNameInput.Focus()
+			return m, nil
+		}
+		return m, nil
+	case 3: // Confirm
+		switch key.String() {
+		case "enter":
+			name := strings.TrimSpace(m.addNameInput.Value())
+			return m, addProfileCmd(m.rootDir, store.SupportedTools[m.addToolIdx], name, m.addShare, m.addSync, m.addSkills)
+		case "esc":
+			m.wizardStep = 2
+			return m, nil
+		}
+		return m, nil
 	}
-	var cmd tea.Cmd
-	m.addNameInput, cmd = m.addNameInput.Update(key)
-	return m, cmd
+	return m, nil
 }
 
 func (m model) updateExport(key tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -327,13 +452,15 @@ func (m model) updateTemplates(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		opts := m.sourceProfilesForCreate()
 		if len(opts) == 0 {
-			m.err = "no source profiles available"
-			return m, nil
+			m.statusMsg, m.statusIsError = "no source profiles available", true
+			m.statusExpiry = time.Now().Add(5 * time.Second)
+			return m, tea.Tick(5*time.Second, func(time.Time) tea.Msg { return statusClearMsg{} })
 		}
 		name := strings.TrimSpace(m.templateName.Value())
 		if name == "" {
-			m.err = "template name is required"
-			return m, nil
+			m.statusMsg, m.statusIsError = "template name is required", true
+			m.statusExpiry = time.Now().Add(5 * time.Second)
+			return m, tea.Tick(5*time.Second, func(time.Time) tea.Msg { return statusClearMsg{} })
 		}
 		return m, createTemplateCmd(m.rootDir, m.templateTool(), opts[m.templateSource], name)
 	case "a":
@@ -413,8 +540,9 @@ func (m model) updateMode(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key.String() == "enter" {
 			newName := strings.TrimSpace(m.prompt.Value())
 			if newName == "" {
-				m.err = "new template name is required"
-				return m, nil
+				m.statusMsg, m.statusIsError = "new template name is required", true
+				m.statusExpiry = time.Now().Add(5 * time.Second)
+				return m, tea.Tick(5*time.Second, func(time.Time) tea.Msg { return statusClearMsg{} })
 			}
 			t := m.presets[m.templateCursor]
 			return m, renameTemplateCmd(m.rootDir, t.Tool, t.Name, newName)
@@ -436,8 +564,9 @@ func (m model) updateMode(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			item := m.selected()
 			newName := strings.TrimSpace(m.prompt.Value())
 			if newName == "" {
-				m.err = "new profile name is required"
-				return m, nil
+				m.statusMsg, m.statusIsError = "new profile name is required", true
+				m.statusExpiry = time.Now().Add(5 * time.Second)
+				return m, tea.Tick(5*time.Second, func(time.Time) tea.Msg { return statusClearMsg{} })
 			}
 			return m, renameProfileCmd(m.rootDir, item.Tool, item.Profile, newName)
 		}
@@ -457,113 +586,484 @@ func (m model) updateMode(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	h := lipgloss.NewStyle().Foreground(lipgloss.Color("#F8FAFC")).Background(lipgloss.Color("#0F766E")).Padding(0, 1).Bold(true).Render("ProfileX TUI | q quit")
+	// Welcome screen (full-screen centered)
+	if m.welcomeActive && (m.state == nil || len(m.state.Profiles) == 0) {
+		return m.renderWelcome()
+	}
+
+	h := m.renderHeader()
 	side := m.renderSidebar()
 	main := m.renderMain()
-	status := ""
-	if m.err != "" {
-		status = lipgloss.NewStyle().Foreground(lipgloss.Color("#B91C1C")).Bold(true).Render("Error: " + m.err)
-	} else if m.info != "" {
-		status = lipgloss.NewStyle().Foreground(lipgloss.Color("#065F46")).Bold(true).Render(m.info)
-	}
+	helpBar := m.renderHelpBar()
+
 	body := lipgloss.JoinHorizontal(lipgloss.Top, side, main)
 	out := h + "\n" + body
-	if status != "" {
-		out += "\n" + status
+
+	// Timed status message
+	if m.statusMsg != "" {
+		if m.statusIsError {
+			out += "\n" + styleError.Render("Error: "+m.statusMsg)
+		} else {
+			out += "\n" + styleSuccess.Render(m.statusMsg)
+		}
 	}
+
+	out += "\n" + helpBar
 	return out
 }
 
+func (m model) renderWelcome() string {
+	w := max(60, m.width-20)
+	box := lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(colorPrimary).
+		Padding(2, 4).
+		Width(w)
+
+	title := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Render("Welcome to ProfileX")
+	badge1 := renderToolBadge(store.ToolClaude)
+	badge2 := renderToolBadge(store.ToolCodex)
+
+	content := strings.Join([]string{
+		title,
+		"",
+		"ProfileX manages isolated profiles for your AI coding tools.",
+		"Each profile gets its own sessions, settings, and skills.",
+		"",
+		"Supported tools:  " + badge1 + "  " + badge2,
+		"",
+		"Example: creating a profile named " + styleSectionTitle.Render("work") +
+			" gives you the command " + styleSectionTitle.Render("claude-work"),
+		"",
+		renderDivider(w - 12),
+		"",
+		styleSuccess.Render("Press Enter to create your first profile"),
+		styleMuted.Render("q to quit"),
+	}, "\n")
+
+	rendered := box.Render(content)
+
+	// Center vertically
+	pad := (m.height - lipgloss.Height(rendered)) / 2
+	if pad < 0 {
+		pad = 0
+	}
+	return strings.Repeat("\n", pad) + rendered
+}
+
+func (m model) renderHeader() string {
+	ver := resolvedVersion()
+	info := fmt.Sprintf("ProfileX v%s", ver)
+
+	if m.state != nil && len(m.state.Profiles) > 0 {
+		claudeCount, codexCount := 0, 0
+		for _, p := range m.state.Profiles {
+			if p.Tool == store.ToolClaude {
+				claudeCount++
+			} else {
+				codexCount++
+			}
+		}
+		parts := []string{fmt.Sprintf("%d profiles", len(m.state.Profiles))}
+		if claudeCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d claude", claudeCount))
+		}
+		if codexCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d codex", codexCount))
+		}
+		info += " | " + strings.Join(parts, ", ")
+	}
+
+	info += " | q quit"
+	return styleHeader.Render(info)
+}
+
 func (m model) renderSidebar() string {
-	s := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#64748B")).Padding(1, 1).Width(34)
-	lines := []string{"Navigation"}
+	s := lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(colorCardBorder).
+		Padding(1, 1).
+		Width(34)
+
+	cursorStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#0F172A")).
+		Background(colorAccent)
+
+	lines := []string{styleSectionTitle.Render("Navigation")}
 	for i, it := range m.sidebar {
 		if !it.Selectable {
-			lines = append(lines, strings.ToUpper(it.Label))
+			if it.Kind == sidebarHeading {
+				label := it.Label
+				if label == "(none)" {
+					lines = append(lines, "")
+					lines = append(lines, styleMuted.Render("  No profiles yet"))
+					continue
+				}
+				if label == "Profiles" {
+					lines = append(lines, "")
+					lines = append(lines, styleSectionTitle.Render("  PROFILES"))
+					continue
+				}
+				// Tool heading -- use badge
+				tool, ok := store.IsSupportedTool(label)
+				if ok {
+					lines = append(lines, "  "+renderToolBadge(tool))
+				} else {
+					lines = append(lines, "  "+strings.ToUpper(label))
+				}
+				continue
+			}
 			continue
 		}
-		p := "  " + it.Label
-		if i == m.cursor {
-			p = lipgloss.NewStyle().Foreground(lipgloss.Color("#0F172A")).Background(lipgloss.Color("#A7F3D0")).Render("> " + p)
+
+		label := it.Label
+		prefix := "  "
+		switch it.Kind {
+		case sidebarAdd:
+			label = "+ Add Profile"
+		case sidebarExport:
+			label = "^ Export Usage"
+		case sidebarTemplates:
+			label = "# Templates"
+		case sidebarProfile:
+			// Mark default profiles with *
+			if m.state != nil {
+				if def, ok := m.state.Defaults[it.Tool]; ok && def == it.Profile {
+					label = "  " + it.Profile + " *"
+				} else {
+					label = "  " + it.Profile
+				}
+			}
 		}
-		lines = append(lines, p)
+
+		if i == m.cursor {
+			lines = append(lines, cursorStyle.Render("> "+label))
+		} else {
+			lines = append(lines, prefix+label)
+		}
 	}
 	return s.Render(strings.Join(lines, "\n"))
 }
 
 func (m model) renderMain() string {
-	s := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#64748B")).Padding(1, 2).Width(max(60, m.width-38))
-	var title string
-	var lines []string
+	mainW := max(60, m.width-38)
+	s := styleCard.Width(mainW)
+
+	// If wizard is active, render that instead
+	if m.wizardStep >= 0 {
+		return s.Render(m.renderWizard(mainW))
+	}
+
+	var content string
 	switch m.selected().Kind {
 	case sidebarAdd:
-		title = "Add Profile"
-		tool := store.SupportedTools[m.addToolIdx]
-		lines = []string{
-			fmt.Sprintf("Tool: %s  ([/])", tool),
-			"Name: " + m.addNameInput.View(),
-			fmt.Sprintf("Share sessions: %t (s)", m.addShare),
-			fmt.Sprintf("Sync config: %t (c)", m.addSync),
-			fmt.Sprintf("Share skills: %t (k)", m.addSkills),
-			"",
-			"Press Enter to create profile.",
-		}
+		content = m.renderAddPanel()
 	case sidebarExport:
-		title = "Export Usage"
-		lines = []string{"Output file: " + m.exportPathInput.View(), "Press Enter to export."}
-		if m.state != nil {
-			lines = append(lines, fmt.Sprintf("Profiles found: %d", len(m.state.Profiles)))
-		}
-		if m.exportRunning {
-			lines = append(lines, fmt.Sprintf("Status: running  Elapsed: %s", m.exportElapsed.Round(100*time.Millisecond)))
-		}
-		if m.lastExport != nil {
-			r := m.lastExport
-			lines = append(lines, "", "Last export:", fmt.Sprintf("File: %s", r.Out), fmt.Sprintf("Duration: %s", r.Duration.Round(100*time.Millisecond)), fmt.Sprintf("Profiles: %d Events: %d Roots: %d Files: %d", r.Profiles, r.Events, r.Roots, r.Files))
-		}
+		content = m.renderExportPanel(mainW)
 	case sidebarTemplates:
-		title = "Templates"
-		lines = []string{"[/] choose template | a apply | r rename | d delete", "Use ',' and '.' to choose create-source profile.", "Type template name and press Enter to create.", ""}
-		if len(m.presets) == 0 {
-			lines = append(lines, "(no templates)")
+		content = m.renderTemplatesPanel(mainW)
+	case sidebarProfile:
+		content = m.renderProfileCard(mainW)
+	default:
+		content = styleSectionTitle.Render("ProfileX") + "\n\n" +
+			styleMuted.Render("Select a sidebar item to get started.")
+	}
+
+	// Mode overlay
+	if m.mode != modeNormal {
+		content += "\n\n" + m.renderModeOverlay()
+	}
+
+	return s.Render(content)
+}
+
+func (m model) renderAddPanel() string {
+	title := styleSectionTitle.Render("+ Add Profile")
+	return title + "\n\n" +
+		styleMuted.Render("Press Enter to start the profile creation wizard.")
+}
+
+func (m model) renderWizard(w int) string {
+	divW := w - 8
+	if divW < 20 {
+		divW = 20
+	}
+	steps := []string{"Tool", "Name", "Options", "Confirm"}
+	stepLine := ""
+	for i, name := range steps {
+		if i == m.wizardStep {
+			stepLine += styleSuccess.Render(fmt.Sprintf("[%d %s]", i+1, name))
+		} else if i < m.wizardStep {
+			stepLine += styleMuted.Render(fmt.Sprintf(" %d %s ", i+1, name))
 		} else {
-			for i, t := range m.presets {
-				p := "  "
-				if i == m.templateCursor {
-					p = "> "
-				}
-				lines = append(lines, p+fmt.Sprintf("%s/%s", t.Tool, t.Name))
+			stepLine += styleMuted.Render(fmt.Sprintf(" %d %s ", i+1, name))
+		}
+		if i < len(steps)-1 {
+			stepLine += styleMuted.Render(" > ")
+		}
+	}
+
+	title := styleSectionTitle.Render("Create Profile") + "\n" + stepLine + "\n" + renderDivider(divW) + "\n\n"
+
+	switch m.wizardStep {
+	case 0:
+		lines := []string{title}
+		lines = append(lines, "Choose your tool:\n")
+		for i, tool := range store.SupportedTools {
+			badge := renderToolBadge(tool)
+			desc := ""
+			if tool == store.ToolClaude {
+				desc = "Anthropic's Claude Code CLI"
+			} else {
+				desc = "OpenAI's Codex CLI"
+			}
+			cursor := "  "
+			if i == m.addToolIdx {
+				cursor = "> "
+				lines = append(lines, styleSuccess.Render(cursor)+badge+"  "+desc)
+			} else {
+				lines = append(lines, cursor+badge+"  "+styleMuted.Render(desc))
 			}
 		}
-		opts := m.sourceProfilesForCreate()
-		src := "default"
+		lines = append(lines, "", styleMuted.Render("Up/Down to select, Enter to continue, Esc to cancel"))
+		return strings.Join(lines, "\n")
+
+	case 1:
+		tool := store.SupportedTools[m.addToolIdx]
+		return title +
+			"Profile name:\n\n" +
+			"  " + m.addNameInput.View() + "\n\n" +
+			styleMuted.Render(fmt.Sprintf("This creates the command %s-%s", tool, m.addNameInput.Value())) + "\n\n" +
+			styleMuted.Render("Enter to continue, Esc to go back")
+
+	case 2:
+		return title +
+			"Configure options:\n\n" +
+			fmt.Sprintf("  %s  Session sharing   %s\n", renderKeyHint("s", "toggle"), renderToggle(m.addShare)) +
+			fmt.Sprintf("  %s  Skills sharing    %s\n", renderKeyHint("k", "toggle"), renderToggle(m.addSkills)) +
+			fmt.Sprintf("  %s  Config sync       %s\n", renderKeyHint("c", "toggle"), renderToggle(m.addSync)) +
+			"\n" + styleMuted.Render("Enter to continue, Esc to go back")
+
+	case 3:
+		tool := store.SupportedTools[m.addToolIdx]
+		name := strings.TrimSpace(m.addNameInput.Value())
+		return title +
+			"Review and confirm:\n\n" +
+			renderDivider(divW) + "\n" +
+			"  Tool:             " + renderToolBadge(tool) + "\n" +
+			"  Profile name:     " + styleSectionTitle.Render(name) + "\n" +
+			"  Command:          " + styleSectionTitle.Render(fmt.Sprintf("%s-%s", tool, name)) + "\n" +
+			"  Session sharing:  " + renderToggle(m.addShare) + "\n" +
+			"  Skills sharing:   " + renderToggle(m.addSkills) + "\n" +
+			"  Config sync:      " + renderToggle(m.addSync) + "\n" +
+			renderDivider(divW) + "\n\n" +
+			styleSuccess.Render("Press Enter to create") + "  " + styleMuted.Render("Esc to go back")
+	}
+	return ""
+}
+
+func (m model) renderExportPanel(w int) string {
+	divW := w - 8
+	if divW < 20 {
+		divW = 20
+	}
+	title := styleSectionTitle.Render("^ Export Usage")
+	lines := []string{title, ""}
+	lines = append(lines, styleMuted.Render("Export a unified usage bundle for analysis in ProfileX-UI."))
+	lines = append(lines, "")
+	lines = append(lines, "Output file: "+m.exportPathInput.View())
+
+	if m.state != nil {
+		lines = append(lines, styleMuted.Render(fmt.Sprintf("Profiles found: %d", len(m.state.Profiles))))
+	}
+
+	lines = append(lines, "")
+
+	if m.exportRunning {
+		elapsed := m.exportElapsed.Round(100 * time.Millisecond)
+		lines = append(lines, styleWarning.Render(fmt.Sprintf("Exporting... %s", elapsed)))
+	} else {
+		lines = append(lines, renderKeyHint("Enter", "start export"))
+	}
+
+	if m.lastExport != nil {
+		r := m.lastExport
+		lines = append(lines, "", renderDivider(divW), "")
+		lines = append(lines, styleSuccess.Render("Last export complete"))
+		lines = append(lines, fmt.Sprintf("  File:      %s", r.Out))
+		lines = append(lines, fmt.Sprintf("  Duration:  %s", r.Duration.Round(100*time.Millisecond)))
+		lines = append(lines, fmt.Sprintf("  Profiles: %d  Events: %d  Roots: %d  Files: %d",
+			r.Profiles, r.Events, r.Roots, r.Files))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func (m model) renderTemplatesPanel(w int) string {
+	divW := w - 8
+	if divW < 20 {
+		divW = 20
+	}
+	title := styleSectionTitle.Render("# Templates")
+	lines := []string{title, ""}
+
+	if len(m.presets) == 0 {
+		lines = append(lines, styleMuted.Render("No templates yet."))
+		lines = append(lines, "")
+		lines = append(lines, styleMuted.Render("Templates let you save and reuse settings across profiles."))
+		lines = append(lines, styleMuted.Render("Create one below from an existing profile's settings."))
+	} else {
+		lines = append(lines, styleMuted.Render("Saved templates:"))
+		lines = append(lines, "")
+		for i, t := range m.presets {
+			badge := renderToolBadge(t.Tool)
+			cursor := "  "
+			if i == m.templateCursor {
+				cursor = "> "
+			}
+			lines = append(lines, cursor+badge+"  "+t.Name)
+		}
+		lines = append(lines, "")
+		lines = append(lines, renderKeyHint("[", "prev")+" "+renderKeyHint("]", "next")+
+			"  "+renderKeyHint("a", "apply")+" "+renderKeyHint("r", "rename")+" "+renderKeyHint("d", "delete"))
+	}
+
+	lines = append(lines, "", renderDivider(divW), "")
+	lines = append(lines, styleSectionTitle.Render("Create new template"))
+	lines = append(lines, "")
+
+	opts := m.sourceProfilesForCreate()
+	src := "default"
+	if len(opts) > 0 {
+		src = opts[clampIndex(m.templateSource, len(opts))]
+	}
+	lines = append(lines, fmt.Sprintf("  Source: %s/%s  ", m.templateTool(), src)+renderKeyHint(",", "prev")+" "+renderKeyHint(".", "next"))
+	lines = append(lines, "  Name:   "+m.templateName.View())
+	lines = append(lines, "")
+	lines = append(lines, "  "+renderKeyHint("Enter", "create template"))
+
+	return strings.Join(lines, "\n")
+}
+
+func (m model) renderProfileCard(w int) string {
+	divW := w - 8
+	if divW < 20 {
+		divW = 20
+	}
+	it := m.selected()
+	key := pk(it.Tool, it.Profile)
+
+	badge := renderToolBadge(it.Tool)
+	name := lipgloss.NewStyle().Bold(true).Render(it.Profile)
+
+	defaultTag := ""
+	if m.state != nil {
+		if def, ok := m.state.Defaults[it.Tool]; ok && def == it.Profile {
+			defaultTag = "  " + styleMuted.Render("(default)")
+		}
+	}
+
+	sessionOn := m.sessionShared[key]
+	skillsOn := m.skillsShared[key]
+	syncPreset := m.syncByProfile[key]
+	syncOn := syncPreset != ""
+
+	lines := []string{
+		badge + "  " + name + defaultTag,
+		renderDivider(divW),
+		fmt.Sprintf("  Session sharing   %s    %s", renderToggle(sessionOn), renderKeyHint("s", "toggle")),
+		fmt.Sprintf("  Skills sharing    %s    %s", renderToggle(skillsOn), renderKeyHint("k", "toggle")),
+	}
+	if syncOn {
+		lines = append(lines, fmt.Sprintf("  Config sync       %s    %s  %s", renderToggle(true), renderKeyHint("c", "toggle"), styleMuted.Render("("+syncPreset+")")))
+	} else {
+		lines = append(lines, fmt.Sprintf("  Config sync       %s   %s", renderToggle(false), renderKeyHint("c", "toggle")))
+	}
+	lines = append(lines, renderDivider(divW))
+	lines = append(lines, "  "+renderKeyHint("r", "rename")+"    "+renderKeyHint("d", "delete"))
+
+	return strings.Join(lines, "\n")
+}
+
+func (m model) renderModeOverlay() string {
+	var content string
+	switch m.mode {
+	case modeTemplateApply:
+		opts := m.applyTargets()
+		cur := "default"
 		if len(opts) > 0 {
-			src = opts[clampIndex(m.templateSource, len(opts))]
+			cur = opts[clampIndex(m.applyIndex, len(opts))]
 		}
-		lines = append(lines, "", fmt.Sprintf("Create from: %s/%s", m.templateTool(), src), "Template name: "+m.templateName.View())
-	case sidebarProfile:
-		title = "Profile"
-		it := m.selected()
-		key := pk(it.Tool, it.Profile)
-		lines = []string{
-			fmt.Sprintf("%s/%s", it.Tool, it.Profile),
-			fmt.Sprintf("Session sharing: %t (s toggle)", m.sessionShared[key]),
-		}
-		lines = append(lines, fmt.Sprintf("Skills sharing: %t (k toggle)", m.skillsShared[key]))
-		if p := m.syncByProfile[key]; p != "" {
-			lines = append(lines, fmt.Sprintf("Config sync: on (%s) (c toggle)", p))
-		} else {
-			lines = append(lines, "Config sync: off (c toggle)")
-		}
-		lines = append(lines, "Controls: s sessions, k skills, c config-sync", "Actions: r rename, d delete")
+		content = styleWarning.Render("Apply Template") + "\n\n" +
+			fmt.Sprintf("Target profile: %s", styleSectionTitle.Render(cur)) + "\n\n" +
+			renderKeyHint("Up/Down", "select") + "  " + renderKeyHint("Enter", "apply") + "  " + renderKeyHint("Esc", "cancel")
+	case modeTemplateRename:
+		content = styleWarning.Render("Rename Template") + "\n\n" +
+			"New name: " + m.prompt.View() + "\n\n" +
+			renderKeyHint("Enter", "confirm") + "  " + renderKeyHint("Esc", "cancel")
+	case modeTemplateDelete:
+		content = styleError.Render("Delete Template") + "\n\n" +
+			"Are you sure you want to delete this template?\n\n" +
+			renderKeyHint("y", "confirm delete") + "  " + renderKeyHint("n", "cancel") + "  " + renderKeyHint("Esc", "cancel")
+	case modeProfileRename:
+		content = styleWarning.Render("Rename Profile") + "\n\n" +
+			"New name: " + m.prompt.View() + "\n\n" +
+			renderKeyHint("Enter", "confirm") + "  " + renderKeyHint("Esc", "cancel")
+	case modeProfileDelete:
+		content = styleError.Render("Delete Profile") + "\n\n" +
+			"Are you sure you want to delete this profile?\n\n" +
+			renderKeyHint("y", "confirm delete") + "  " + renderKeyHint("n", "cancel") + "  " + renderKeyHint("Esc", "cancel")
 	default:
-		title = "ProfileX"
-		lines = []string{"Select a sidebar item."}
+		return ""
 	}
+	return styleOverlay.Render(content)
+}
+
+func (m model) renderHelpBar() string {
+	var hints []string
+
+	if m.wizardStep >= 0 {
+		switch m.wizardStep {
+		case 0:
+			hints = append(hints, renderKeyHint("Up/Down", "select"), renderKeyHint("Enter", "next"), renderKeyHint("Esc", "cancel"))
+		case 1:
+			hints = append(hints, renderKeyHint("Enter", "next"), renderKeyHint("Esc", "back"))
+		case 2:
+			hints = append(hints, renderKeyHint("s", "sessions"), renderKeyHint("k", "skills"), renderKeyHint("c", "config"), renderKeyHint("Enter", "next"), renderKeyHint("Esc", "back"))
+		case 3:
+			hints = append(hints, renderKeyHint("Enter", "create"), renderKeyHint("Esc", "back"))
+		}
+		hints = append(hints, renderKeyHint("q", "quit"))
+		return strings.Join(hints, "  ")
+	}
+
 	if m.mode != modeNormal {
-		lines = append(lines, "", "Mode: "+m.mode.String(), m.modeHint())
+		switch m.mode {
+		case modeProfileDelete, modeTemplateDelete:
+			hints = append(hints, renderKeyHint("y", "confirm delete"), renderKeyHint("n", "cancel"), renderKeyHint("Esc", "cancel"))
+		case modeProfileRename, modeTemplateRename:
+			hints = append(hints, renderKeyHint("Enter", "confirm"), renderKeyHint("Esc", "cancel"))
+		case modeTemplateApply:
+			hints = append(hints, renderKeyHint("Up/Down", "select"), renderKeyHint("Enter", "apply"), renderKeyHint("Esc", "cancel"))
+		}
+		return strings.Join(hints, "  ")
 	}
-	return s.Render(title + "\n\n" + strings.Join(lines, "\n"))
+
+	switch m.selected().Kind {
+	case sidebarProfile:
+		hints = append(hints, renderKeyHint("s", "sessions"), renderKeyHint("k", "skills"), renderKeyHint("c", "config sync"), renderKeyHint("r", "rename"), renderKeyHint("d", "delete"))
+	case sidebarTemplates:
+		if len(m.presets) > 0 {
+			hints = append(hints, renderKeyHint("[/]", "template"), renderKeyHint("a", "apply"), renderKeyHint("r", "rename"), renderKeyHint("d", "delete"))
+		}
+		hints = append(hints, renderKeyHint(",/.", "source"), renderKeyHint("Enter", "create"))
+	case sidebarExport:
+		hints = append(hints, renderKeyHint("Enter", "export"))
+	case sidebarAdd:
+		hints = append(hints, renderKeyHint("Enter", "start wizard"))
+	}
+	hints = append(hints, renderKeyHint("q", "quit"))
+	return strings.Join(hints, "  ")
 }
 
 func (m modeKind) String() string {
@@ -580,24 +1080,6 @@ func (m modeKind) String() string {
 		return "profile-delete"
 	default:
 		return "normal"
-	}
-}
-
-func (m model) modeHint() string {
-	switch m.mode {
-	case modeTemplateApply:
-		opts := m.applyTargets()
-		cur := "default"
-		if len(opts) > 0 {
-			cur = opts[clampIndex(m.applyIndex, len(opts))]
-		}
-		return fmt.Sprintf("Target: %s (up/down, enter apply, esc cancel)", cur)
-	case modeTemplateRename, modeProfileRename:
-		return "New name: " + m.prompt.View() + " (enter confirm, esc cancel)"
-	case modeTemplateDelete, modeProfileDelete:
-		return "Confirm delete? y/n"
-	default:
-		return ""
 	}
 }
 

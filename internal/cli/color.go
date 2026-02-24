@@ -3,6 +3,10 @@ package cli
 import (
 	"os"
 	"runtime"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/derekurban/profilex-cli/internal/store"
 )
 
 var colorEnabled = detectColor()
@@ -65,3 +69,126 @@ func Green(s string) string  { return colorize(green, s) }
 func Yellow(s string) string { return colorize(yellow, s) }
 func Red(s string) string    { return colorize(red, s) }
 func Cyan(s string) string   { return colorize(cyan, s) }
+
+// ---------------------------------------------------------------------------
+// Lipgloss-based TUI design system
+// ---------------------------------------------------------------------------
+
+// Color palette
+var (
+	colorPrimary    = lipgloss.Color("#0F766E")
+	colorAccent     = lipgloss.Color("#A7F3D0")
+	colorSuccess    = lipgloss.Color("#065F46")
+	colorError      = lipgloss.Color("#B91C1C")
+	colorWarning    = lipgloss.Color("#92400E")
+	colorMuted      = lipgloss.Color("#64748B")
+	colorToggleOn   = lipgloss.Color("#065F46")
+	colorToggleOff  = lipgloss.Color("#64748B")
+	colorBadgeCl    = lipgloss.Color("#7C3AED") // claude purple
+	colorBadgeCx    = lipgloss.Color("#0369A1") // codex blue
+	colorHelpKey    = lipgloss.Color("#F8FAFC")
+	colorHelpDesc   = lipgloss.Color("#94A3B8")
+	colorCardBorder = lipgloss.Color("#64748B")
+	colorHeaderFg   = lipgloss.Color("#F8FAFC")
+	colorHeaderBg   = lipgloss.Color("#0F766E")
+	colorWarningBg  = lipgloss.Color("#FEF3C7")
+	colorWarningFg  = lipgloss.Color("#92400E")
+)
+
+// Reusable styles
+var (
+	styleHeader = lipgloss.NewStyle().
+			Foreground(colorHeaderFg).
+			Background(colorHeaderBg).
+			Padding(0, 1).
+			Bold(true)
+
+	styleHelpBar = lipgloss.NewStyle().
+			Foreground(colorHelpDesc)
+
+	styleHelpKey = lipgloss.NewStyle().
+			Foreground(colorHelpKey).
+			Background(colorMuted).
+			Padding(0, 1).
+			Bold(true)
+
+	styleHelpDesc = lipgloss.NewStyle().
+			Foreground(colorHelpDesc)
+
+	styleSectionTitle = lipgloss.NewStyle().
+				Foreground(colorPrimary).
+				Bold(true)
+
+	styleCard = lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(colorCardBorder).
+			Padding(1, 2)
+
+	styleToggleOn = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#ECFDF5")).
+			Background(colorToggleOn).
+			Padding(0, 1).
+			Bold(true)
+
+	styleToggleOff = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#F8FAFC")).
+			Background(colorToggleOff).
+			Padding(0, 1)
+
+	styleSuccess = lipgloss.NewStyle().
+			Foreground(colorSuccess).
+			Bold(true)
+
+	styleError = lipgloss.NewStyle().
+			Foreground(colorError).
+			Bold(true)
+
+	styleWarning = lipgloss.NewStyle().
+			Foreground(colorWarningFg).
+			Bold(true)
+
+	styleBadgeClaude = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#F8FAFC")).
+				Background(colorBadgeCl).
+				Padding(0, 1).
+				Bold(true)
+
+	styleBadgeCodex = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#F8FAFC")).
+			Background(colorBadgeCx).
+			Padding(0, 1).
+			Bold(true)
+
+	styleMuted = lipgloss.NewStyle().
+			Foreground(colorMuted)
+
+	styleOverlay = lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(colorWarningFg).
+			Padding(1, 2)
+)
+
+func renderToggle(on bool) string {
+	if on {
+		return styleToggleOn.Render("ON")
+	}
+	return styleToggleOff.Render("OFF")
+}
+
+func renderKeyHint(key, desc string) string {
+	return styleHelpKey.Render(key) + " " + styleHelpDesc.Render(desc)
+}
+
+func renderToolBadge(tool store.Tool) string {
+	if tool == store.ToolClaude {
+		return styleBadgeClaude.Render("claude")
+	}
+	return styleBadgeCodex.Render("codex")
+}
+
+func renderDivider(width int) string {
+	if width <= 0 {
+		width = 36
+	}
+	return styleMuted.Render(strings.Repeat("\u2500", width))
+}
