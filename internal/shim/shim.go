@@ -40,15 +40,18 @@ func Install(shimDir string, profile store.Profile, profilexBin string) (string,
 		content = fmt.Sprintf(`@echo off
 REM %s
 setlocal
+title %s
 %s run %s %s -- %%*
 exit /b %%ERRORLEVEL%%
-`, marker, cmdQuote(profilexBin), profile.Tool, cmdQuote(profile.Name))
+`, marker, baseName, cmdQuote(profilexBin), profile.Tool, cmdQuote(profile.Name))
 	} else {
 		content = fmt.Sprintf(`#!/usr/bin/env bash
 # %s
 set -euo pipefail
+# Set terminal/tab title to the active shim profile.
+printf '\033]0;%s\007'
 exec %s run %s %s -- "$@"
-`, marker, shellQuote(profilexBin), profile.Tool, shellQuote(profile.Name))
+`, marker, baseName, shellQuote(profilexBin), profile.Tool, shellQuote(profile.Name))
 	}
 	if err := os.WriteFile(shimPath, []byte(content), 0o755); err != nil {
 		return "", err

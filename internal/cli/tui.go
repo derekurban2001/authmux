@@ -77,6 +77,13 @@ const (
 	modeProfileDelete
 )
 
+type paneFocus int
+
+const (
+	focusSidebar paneFocus = iota
+	focusMain
+)
+
 type model struct {
 	rootDir string
 	width   int
@@ -90,6 +97,7 @@ type model struct {
 
 	sidebar []sidebarItem
 	cursor  int
+	focus   paneFocus
 
 	welcomeActive bool
 	wizardStep    int // -1=inactive, 0=tool, 1=name, 2=options, 3=confirm
@@ -109,6 +117,7 @@ type model struct {
 	templateCursor int
 	templateSource int
 	templateName   textinput.Model
+	mainCursor     int
 
 	mode       modeKind
 	prompt     textinput.Model
@@ -172,6 +181,7 @@ func newModel(rootDir string) model {
 		templateCursor:  0,
 		addToolIdx:      0,
 		mode:            modeNormal,
+		focus:           focusSidebar,
 	}
 }
 
@@ -191,6 +201,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state, m.presets, m.syncByProfile, m.sessionShared, m.skillsShared = msg.State, msg.Presets, msg.SyncByProfile, msg.SessionShared, msg.SkillsShared
 		m.sidebar = buildSidebar(msg.State)
 		m.cursor = selectableCursor(m.sidebar, m.cursor)
+		m.mainCursor = clampIndex(m.mainCursor, m.mainMenuCount())
 		if m.templateCursor >= len(m.presets) {
 			m.templateCursor = max(0, len(m.presets)-1)
 		}
@@ -298,27 +309,274 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateMode(key)
 	}
 
+	if m.focus == focusSidebar {
+		switch key.String() {
+		case "up", "k":
+			m.cursor = moveCursor(m.sidebar, m.cursor, -1)
+			m.mainCursor = clampIndex(m.mainCursor, m.mainMenuCount())
+			return m, nil
+		case "down", "j":
+			m.cursor = moveCursor(m.sidebar, m.cursor, 1)
+			m.mainCursor = clampIndex(m.mainCursor, m.mainMenuCount())
+			return m, nil
+		case "enter", "right":
+			m.focus = focusMain
+			m.mainCursor = clampIndex(m.mainCursor, m.mainMenuCount())
+			return m, nil
+		default:
+			return m, nil
+		}
+	}
+
+	return m.updateMain(key)
+}
+
+func (m model) updateMain(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if key.String() == "esc" {
+		m.focus = focusSidebar
+		return m, nil
+	}
+
 	switch key.String() {
 	case "up", "k":
-		m.cursor = moveCursor(m.sidebar, m.cursor, -1)
+		m.mainCursor = moveLinear(m.mainCursor, m.mainMenuCount(), -1)
 		return m, nil
 	case "down", "j":
-		m.cursor = moveCursor(m.sidebar, m.cursor, 1)
+		m.mainCursor = moveLinear(m.mainCursor, m.mainMenuCount(), 1)
 		return m, nil
 	}
 
 	switch m.selected().Kind {
 	case sidebarAdd:
-		return m.updateAdd(key)
+		if key.String() == "enter" || key.String() == "right" {
+			return m.updateAdd(tea.KeyMsg{Type: tea.KeyEnter})
+		}
+		return m, nil
 	case sidebarExport:
-		return m.updateExport(key)
+		return m.updateExportMain(key)
 	case sidebarTemplates:
-		return m.updateTemplates(key)
+		return m.updateTemplatesMain(key)
 	case sidebarProfile:
-		return m.updateProfile(key)
+		return m.updateProfileMain(key)
 	default:
 		return m, nil
 	}
+}
+
+func (m model) updateExportMain(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.exportRunning {
+		return m, nil
+	}
+	switch m.mainCursor {
+	case 1:
+		if key.String() == "enter" || key.String() == "right" {
+			out := strings.TrimSpace(m.exportPathInput.Value())
+			if out == "" {
+				out = "profilex-usage-" + time.Now().Format("20060102-150405") + ".json"
+				m.exportPathInput.SetValue(out)
+			}
+			m.exportRunning, m.exportStarted, m.exportElapsed = true, time.Now(), 0
+			return m, tea.Batch(exportCmd(m.rootDir, out), exportTick())
+		}
+	case 0:
+		if key.String() == "enter" {
+			m.mainCursor = 1
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.exportPathInput, cmd = m.exportPathInput.Update(key)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m model) updateTemplatesMain(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	menu := m.templatesMenu()
+	m.mainCursor = clampIndex(m.mainCursor, menu.total)
+	if menu.total == 0 {
+		return m, nil
+	}
+
+	switch key.String() {
+	case "[":
+		if len(m.presets) > 0 {
+			m.templateCursor = (m.templateCursor + len(m.presets) - 1) % len(m.presets)
+		}
+		return m, nil
+	case "]":
+		if len(m.presets) > 0 {
+			m.templateCursor = (m.templateCursor + 1) % len(m.presets)
+		}
+		return m, nil
+	case ",":
+		opts := m.sourceProfilesForCreate()
+		if len(opts) > 0 {
+			m.templateSource = (m.templateSource + len(opts) - 1) % len(opts)
+		}
+		return m, nil
+	case ".":
+		opts := m.sourceProfilesForCreate()
+		if len(opts) > 0 {
+			m.templateSource = (m.templateSource + 1) % len(opts)
+		}
+		return m, nil
+	}
+
+	if menu.hasPresets {
+		switch m.mainCursor {
+		case menu.template:
+			if key.String() == "left" {
+				m.templateCursor = (m.templateCursor + len(m.presets) - 1) % len(m.presets)
+				return m, nil
+			}
+			if key.String() == "right" {
+				m.templateCursor = (m.templateCursor + 1) % len(m.presets)
+				return m, nil
+			}
+		case menu.apply:
+			if key.String() == "enter" || key.String() == "right" || key.String() == "a" {
+				m.applyIndex = 0
+				m.mode = modeTemplateApply
+			}
+			return m, nil
+		case menu.rename:
+			if key.String() == "enter" || key.String() == "right" || key.String() == "r" {
+				m.prompt.SetValue(m.presets[m.templateCursor].Name)
+				m.prompt.Focus()
+				m.mode = modeTemplateRename
+			}
+			return m, nil
+		case menu.delete:
+			if key.String() == "enter" || key.String() == "right" || key.String() == "d" || key.String() == "x" {
+				m.mode = modeTemplateDelete
+			}
+			return m, nil
+		}
+	}
+
+	switch m.mainCursor {
+	case menu.source:
+		opts := m.sourceProfilesForCreate()
+		if len(opts) == 0 {
+			return m, nil
+		}
+		switch key.String() {
+		case "left":
+			m.templateSource = (m.templateSource + len(opts) - 1) % len(opts)
+		case "right":
+			m.templateSource = (m.templateSource + 1) % len(opts)
+		}
+		return m, nil
+	case menu.name:
+		if key.String() == "enter" {
+			m.mainCursor = menu.create
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.templateName, cmd = m.templateName.Update(key)
+		return m, cmd
+	case menu.create:
+		if key.String() != "enter" && key.String() != "right" {
+			return m, nil
+		}
+		opts := m.sourceProfilesForCreate()
+		if len(opts) == 0 {
+			m.statusMsg, m.statusIsError = "no source profiles available", true
+			m.statusExpiry = time.Now().Add(5 * time.Second)
+			return m, tea.Tick(5*time.Second, func(time.Time) tea.Msg { return statusClearMsg{} })
+		}
+		name := strings.TrimSpace(m.templateName.Value())
+		if name == "" {
+			m.statusMsg, m.statusIsError = "template name is required", true
+			m.statusExpiry = time.Now().Add(5 * time.Second)
+			return m, tea.Tick(5*time.Second, func(time.Time) tea.Msg { return statusClearMsg{} })
+		}
+		return m, createTemplateCmd(m.rootDir, m.templateTool(), opts[m.templateSource], name)
+	}
+	return m, nil
+}
+
+func (m model) updateProfileMain(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	item := m.selected()
+	switch m.mainCursor {
+	case 0:
+		if key.String() == "enter" || key.String() == "left" || key.String() == "right" || key.String() == "s" {
+			return m, toggleSessionCmd(m.rootDir, item.Tool, item.Profile, m.sessionShared[pk(item.Tool, item.Profile)])
+		}
+	case 1:
+		if key.String() == "enter" || key.String() == "left" || key.String() == "right" || key.String() == "k" {
+			return m, toggleSkillsCmd(m.rootDir, item.Tool, item.Profile, m.skillsShared[pk(item.Tool, item.Profile)])
+		}
+	case 2:
+		if key.String() == "enter" || key.String() == "left" || key.String() == "right" || key.String() == "c" {
+			_, synced := m.syncByProfile[pk(item.Tool, item.Profile)]
+			return m, toggleConfigSyncCmd(m.rootDir, item.Tool, item.Profile, synced)
+		}
+	case 3:
+		if key.String() == "enter" || key.String() == "right" || key.String() == "r" {
+			m.prompt.SetValue(item.Profile)
+			m.prompt.Focus()
+			m.mode = modeProfileRename
+			return m, nil
+		}
+	case 4:
+		if key.String() == "enter" || key.String() == "right" || key.String() == "d" || key.String() == "x" {
+			m.mode = modeProfileDelete
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+func (m model) mainMenuCount() int {
+	switch m.selected().Kind {
+	case sidebarAdd:
+		return 1
+	case sidebarExport:
+		return 2
+	case sidebarTemplates:
+		return m.templatesMenu().total
+	case sidebarProfile:
+		return 5
+	default:
+		return 0
+	}
+}
+
+type templatesMenuState struct {
+	hasPresets bool
+	template   int
+	apply      int
+	rename     int
+	delete     int
+	source     int
+	name       int
+	create     int
+	total      int
+}
+
+func (m model) templatesMenu() templatesMenuState {
+	out := templatesMenuState{template: -1, apply: -1, rename: -1, delete: -1}
+	i := 0
+	if len(m.presets) > 0 {
+		out.hasPresets = true
+		out.template = i
+		i++
+		out.apply = i
+		i++
+		out.rename = i
+		i++
+		out.delete = i
+		i++
+	}
+	out.source = i
+	i++
+	out.name = i
+	i++
+	out.create = i
+	i++
+	out.total = i
+	return out
 }
 
 func (m model) updateAdd(key tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -679,9 +937,14 @@ func (m model) renderHeader() string {
 }
 
 func (m model) renderSidebar() string {
+	borderColor := colorCardBorder
+	if m.focus == focusSidebar && m.wizardStep < 0 && m.mode == modeNormal {
+		borderColor = colorPrimary
+	}
+
 	s := lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(colorCardBorder).
+		BorderForeground(borderColor).
 		Padding(1, 1).
 		Width(34)
 
@@ -736,8 +999,10 @@ func (m model) renderSidebar() string {
 			}
 		}
 
-		if i == m.cursor {
+		if i == m.cursor && m.focus == focusSidebar && m.wizardStep < 0 && m.mode == modeNormal {
 			lines = append(lines, cursorStyle.Render("> "+label))
+		} else if i == m.cursor {
+			lines = append(lines, styleMuted.Render("> "+label))
 		} else {
 			lines = append(lines, prefix+label)
 		}
@@ -747,7 +1012,10 @@ func (m model) renderSidebar() string {
 
 func (m model) renderMain() string {
 	mainW := max(60, m.width-38)
-	s := styleCard.Width(mainW)
+	s := styleCard.Copy().Width(mainW)
+	if m.focus == focusMain && m.wizardStep < 0 && m.mode == modeNormal {
+		s = s.BorderForeground(colorPrimary)
+	}
 
 	// If wizard is active, render that instead
 	if m.wizardStep >= 0 {
@@ -777,10 +1045,22 @@ func (m model) renderMain() string {
 	return s.Render(content)
 }
 
+func (m model) renderMainItem(idx int, line string) string {
+	if m.focus == focusMain && m.wizardStep < 0 && m.mode == modeNormal && m.mainCursor == idx {
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#0F172A")).
+			Background(colorAccent).
+			Render("> " + line)
+	}
+	return "  " + line
+}
+
 func (m model) renderAddPanel() string {
 	title := styleSectionTitle.Render("+ Add Profile")
+	line := m.renderMainItem(0, "Start profile creation wizard")
 	return title + "\n\n" +
-		styleMuted.Render("Press Enter to start the profile creation wizard.")
+		line + "\n\n" +
+		styleMuted.Render("Enter to start, Esc to return to navigation")
 }
 
 func (m model) renderWizard(w int) string {
@@ -871,7 +1151,7 @@ func (m model) renderExportPanel(w int) string {
 	lines := []string{title, ""}
 	lines = append(lines, styleMuted.Render("Export a unified usage bundle for analysis in ProfileX-UI."))
 	lines = append(lines, "")
-	lines = append(lines, "Output file: "+m.exportPathInput.View())
+	lines = append(lines, m.renderMainItem(0, "Output file: "+m.exportPathInput.View()))
 
 	if m.state != nil {
 		lines = append(lines, styleMuted.Render(fmt.Sprintf("Profiles found: %d", len(m.state.Profiles))))
@@ -881,9 +1161,9 @@ func (m model) renderExportPanel(w int) string {
 
 	if m.exportRunning {
 		elapsed := m.exportElapsed.Round(100 * time.Millisecond)
-		lines = append(lines, styleWarning.Render(fmt.Sprintf("Exporting... %s", elapsed)))
+		lines = append(lines, m.renderMainItem(1, styleWarning.Render(fmt.Sprintf("Exporting... %s", elapsed))))
 	} else {
-		lines = append(lines, renderKeyHint("Enter", "start export"))
+		lines = append(lines, m.renderMainItem(1, "Start export"))
 	}
 
 	if m.lastExport != nil {
@@ -905,6 +1185,7 @@ func (m model) renderTemplatesPanel(w int) string {
 		divW = 20
 	}
 	title := styleSectionTitle.Render("# Templates")
+	menu := m.templatesMenu()
 	lines := []string{title, ""}
 
 	if len(m.presets) == 0 {
@@ -919,28 +1200,34 @@ func (m model) renderTemplatesPanel(w int) string {
 			badge := renderToolBadge(t.Tool)
 			cursor := "  "
 			if i == m.templateCursor {
-				cursor = "> "
+				cursor = styleSuccess.Render("> ")
 			}
 			lines = append(lines, cursor+badge+"  "+t.Name)
 		}
-		lines = append(lines, "")
-		lines = append(lines, renderKeyHint("[", "prev")+" "+renderKeyHint("]", "next")+
-			"  "+renderKeyHint("a", "apply")+" "+renderKeyHint("r", "rename")+" "+renderKeyHint("d", "delete"))
 	}
 
 	lines = append(lines, "", renderDivider(divW), "")
-	lines = append(lines, styleSectionTitle.Render("Create new template"))
-	lines = append(lines, "")
+	lines = append(lines, styleSectionTitle.Render("Template Menu"), "")
 
 	opts := m.sourceProfilesForCreate()
 	src := "default"
 	if len(opts) > 0 {
 		src = opts[clampIndex(m.templateSource, len(opts))]
 	}
-	lines = append(lines, fmt.Sprintf("  Source: %s/%s  ", m.templateTool(), src)+renderKeyHint(",", "prev")+" "+renderKeyHint(".", "next"))
-	lines = append(lines, "  Name:   "+m.templateName.View())
-	lines = append(lines, "")
-	lines = append(lines, "  "+renderKeyHint("Enter", "create template"))
+
+	if menu.hasPresets {
+		templateName := m.presets[clampIndex(m.templateCursor, len(m.presets))].Name
+		lines = append(lines, m.renderMainItem(menu.template, "Selected: "+renderToolBadge(m.templateTool())+"  "+templateName+"  "+styleMuted.Render("(Left/Right to switch)")))
+		lines = append(lines, m.renderMainItem(menu.apply, "Apply selected template"))
+		lines = append(lines, m.renderMainItem(menu.rename, "Rename selected template"))
+		lines = append(lines, m.renderMainItem(menu.delete, "Delete selected template"))
+		lines = append(lines, "")
+	}
+
+	lines = append(lines, styleSectionTitle.Render("Create new template"), "")
+	lines = append(lines, m.renderMainItem(menu.source, fmt.Sprintf("Source: %s/%s  %s", m.templateTool(), src, styleMuted.Render("(Left/Right to switch)"))))
+	lines = append(lines, m.renderMainItem(menu.name, "Name: "+m.templateName.View()))
+	lines = append(lines, m.renderMainItem(menu.create, "Create template"))
 
 	return strings.Join(lines, "\n")
 }
@@ -971,16 +1258,17 @@ func (m model) renderProfileCard(w int) string {
 	lines := []string{
 		badge + "  " + name + defaultTag,
 		renderDivider(divW),
-		fmt.Sprintf("  Session sharing   %s    %s", renderToggle(sessionOn), renderKeyHint("s", "toggle")),
-		fmt.Sprintf("  Skills sharing    %s    %s", renderToggle(skillsOn), renderKeyHint("k", "toggle")),
+		m.renderMainItem(0, fmt.Sprintf("Session sharing   %s", renderToggle(sessionOn))),
+		m.renderMainItem(1, fmt.Sprintf("Skills sharing    %s", renderToggle(skillsOn))),
 	}
 	if syncOn {
-		lines = append(lines, fmt.Sprintf("  Config sync       %s    %s  %s", renderToggle(true), renderKeyHint("c", "toggle"), styleMuted.Render("("+syncPreset+")")))
+		lines = append(lines, m.renderMainItem(2, fmt.Sprintf("Config sync       %s  %s", renderToggle(true), styleMuted.Render("("+syncPreset+")"))))
 	} else {
-		lines = append(lines, fmt.Sprintf("  Config sync       %s   %s", renderToggle(false), renderKeyHint("c", "toggle")))
+		lines = append(lines, m.renderMainItem(2, fmt.Sprintf("Config sync       %s", renderToggle(false))))
 	}
 	lines = append(lines, renderDivider(divW))
-	lines = append(lines, "  "+renderKeyHint("r", "rename")+"    "+renderKeyHint("d", "delete"))
+	lines = append(lines, m.renderMainItem(3, "Rename profile"))
+	lines = append(lines, m.renderMainItem(4, "Delete profile"))
 
 	return strings.Join(lines, "\n")
 }
@@ -1049,18 +1337,22 @@ func (m model) renderHelpBar() string {
 		return strings.Join(hints, "  ")
 	}
 
+	if m.focus == focusSidebar {
+		hints = append(hints, renderKeyHint("Up/Down", "select nav"), renderKeyHint("Enter", "focus menu"), renderKeyHint("q", "quit"))
+		return strings.Join(hints, "  ")
+	}
+
 	switch m.selected().Kind {
 	case sidebarProfile:
-		hints = append(hints, renderKeyHint("s", "sessions"), renderKeyHint("k", "skills"), renderKeyHint("c", "config sync"), renderKeyHint("r", "rename"), renderKeyHint("d", "delete"))
+		hints = append(hints, renderKeyHint("Up/Down", "menu"), renderKeyHint("Enter/Left/Right", "change"), renderKeyHint("Esc", "back to nav"))
 	case sidebarTemplates:
-		if len(m.presets) > 0 {
-			hints = append(hints, renderKeyHint("[/]", "template"), renderKeyHint("a", "apply"), renderKeyHint("r", "rename"), renderKeyHint("d", "delete"))
-		}
-		hints = append(hints, renderKeyHint(",/.", "source"), renderKeyHint("Enter", "create"))
+		hints = append(hints, renderKeyHint("Up/Down", "menu"), renderKeyHint("Left/Right", "change/select"), renderKeyHint("Enter", "activate"), renderKeyHint("Esc", "back to nav"))
 	case sidebarExport:
-		hints = append(hints, renderKeyHint("Enter", "export"))
+		hints = append(hints, renderKeyHint("Up/Down", "menu"), renderKeyHint("Enter", "activate"), renderKeyHint("Esc", "back to nav"))
 	case sidebarAdd:
-		hints = append(hints, renderKeyHint("Enter", "start wizard"))
+		hints = append(hints, renderKeyHint("Enter", "start wizard"), renderKeyHint("Esc", "back to nav"))
+	default:
+		hints = append(hints, renderKeyHint("Esc", "back to nav"))
 	}
 	hints = append(hints, renderKeyHint("q", "quit"))
 	return strings.Join(hints, "  ")
@@ -1180,6 +1472,17 @@ func moveCursor(items []sidebarItem, cur, step int) int {
 		}
 	}
 	return cur
+}
+
+func moveLinear(cur, n, step int) int {
+	if n <= 0 {
+		return 0
+	}
+	next := (cur + step) % n
+	if next < 0 {
+		next += n
+	}
+	return next
 }
 
 func pk(tool store.Tool, profile string) string { return string(tool) + "/" + profile }
