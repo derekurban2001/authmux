@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -168,6 +170,19 @@ func cmdAdd(rootDir string, args []string) error {
 	sharedSkillsErr := error(nil)
 	if !noSharedSkills {
 		sharedSkillsDir, sharedSkillsErr = mgr.EnableSharedSkills(profile)
+		if sharedSkillsErr != nil {
+			var mergeErr *app.SharedSkillsMergeRequiredError
+			if errors.As(sharedSkillsErr, &mergeErr) {
+				merge, promptErr := promptMergeSharedSkills(mergeErr)
+				if promptErr != nil {
+					sharedSkillsErr = promptErr
+				} else if merge {
+					sharedSkillsDir, sharedSkillsErr = mgr.EnableSharedSkillsMerge(profile)
+				} else {
+					sharedSkillsErr = fmt.Errorf("found existing skills in profile; skills sharing left off")
+				}
+			}
+		}
 	}
 
 	shimPath, shimErr := installShimForProfile(profile)
@@ -203,6 +218,37 @@ func cmdAdd(rootDir string, args []string) error {
 	fmt.Printf("      On first run you'll be prompted to authenticate.\n")
 
 	return nil
+}
+
+func promptMergeSharedSkills(mergeErr *app.SharedSkillsMergeRequiredError) (bool, error) {
+	if mergeErr == nil {
+		return false, fmt.Errorf("missing merge prompt details")
+	}
+
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false, err
+	}
+	if (fi.Mode() & os.ModeCharDevice) == 0 {
+		return false, fmt.Errorf(
+			"found existing skills in profile (%s); rerun interactively to merge into shared skills at %s",
+			mergeErr.LocalDir,
+			mergeErr.SharedDir,
+		)
+	}
+
+	fmt.Printf("%s Found existing skills in this profile.\n", Yellow("!"))
+	fmt.Printf("   Profile skills: %s\n", Dim(mergeErr.LocalDir))
+	fmt.Printf("   Shared skills:  %s\n", Dim(mergeErr.SharedDir))
+	fmt.Printf("   Merge into shared skills (overwrite conflicts) and enable sharing? [y/N]: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return false, err
+	}
+	answer := strings.ToLower(strings.TrimSpace(line))
+	return answer == "y" || answer == "yes", nil
 }
 
 // --- remove ---

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -401,6 +402,76 @@ func TestEnableSharedSkillsRejectsNonEmptyLocalDir(t *testing.T) {
 
 	if _, err := m.EnableSharedSkills(p); err == nil {
 		t.Fatalf("expected non-empty local skills dir to be rejected")
+	} else {
+		var mergeErr *SharedSkillsMergeRequiredError
+		if !errors.As(err, &mergeErr) {
+			t.Fatalf("expected SharedSkillsMergeRequiredError, got %T (%v)", err, err)
+		}
+		if !samePath(mergeErr.LocalDir, skillsDir) {
+			t.Fatalf("unexpected local dir in merge error: %q", mergeErr.LocalDir)
+		}
+	}
+}
+
+func TestEnableSharedSkillsMergeMergesAndOverwritesLocalSkills(t *testing.T) {
+	m := newTestManager(t)
+	p, _, err := m.EnsureProfile(store.ToolCodex, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	skillsDir := filepath.Join(p.Dir, "skills")
+	if err := os.MkdirAll(filepath.Join(skillsDir, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsDir, "nested", "SKILL.md"), []byte("local skill"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsDir, "common.txt"), []byte("local"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sharedDir := filepath.Join(m.Root(), "shared", "skills")
+	if err := os.MkdirAll(sharedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sharedDir, "common.txt"), []byte("shared-old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sharedDir, "shared-only.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	gotShared, err := m.EnableSharedSkillsMerge(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !samePath(gotShared, sharedDir) {
+		t.Fatalf("unexpected shared dir: %q", gotShared)
+	}
+
+	enabled, err := m.SharedSkillsEnabled(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !enabled {
+		t.Fatalf("expected shared skills to be enabled")
+	}
+
+	if b, err := os.ReadFile(filepath.Join(sharedDir, "common.txt")); err != nil {
+		t.Fatal(err)
+	} else if string(b) != "local" {
+		t.Fatalf("expected local file to overwrite shared file, got %q", string(b))
+	}
+	if b, err := os.ReadFile(filepath.Join(sharedDir, "nested", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	} else if string(b) != "local skill" {
+		t.Fatalf("unexpected merged skill file: %q", string(b))
+	}
+	if b, err := os.ReadFile(filepath.Join(sharedDir, "shared-only.txt")); err != nil {
+		t.Fatal(err)
+	} else if string(b) != "keep" {
+		t.Fatalf("expected shared-only file to be preserved, got %q", string(b))
 	}
 }
 

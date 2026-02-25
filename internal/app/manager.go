@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +22,17 @@ type ExitCodeError struct {
 
 func (e ExitCodeError) Error() string {
 	return fmt.Sprintf("process exited with code %d", e.Code)
+}
+
+// SharedSkillsMergeRequiredError indicates a profile has local skills that must
+// be merged before the profile can be switched to shared skills storage.
+type SharedSkillsMergeRequiredError struct {
+	LocalDir  string
+	SharedDir string
+}
+
+func (e *SharedSkillsMergeRequiredError) Error() string {
+	return fmt.Sprintf("%s already contains skills; merge into shared skills at %q to enable sharing", e.LocalDir, e.SharedDir)
 }
 
 type StatusRow struct {
@@ -238,6 +250,16 @@ func (m *Manager) DisableSharedSessions(profile store.Profile) error {
 // shared directory under <root>/shared/skills so skills can be reused across
 // all tools and profiles.
 func (m *Manager) EnableSharedSkills(profile store.Profile) (string, error) {
+	return m.enableSharedSkills(profile, false)
+}
+
+// EnableSharedSkillsMerge enables shared skills and merges any existing local
+// skills into the shared directory first, overwriting conflicting files.
+func (m *Manager) EnableSharedSkillsMerge(profile store.Profile) (string, error) {
+	return m.enableSharedSkills(profile, true)
+}
+
+func (m *Manager) enableSharedSkills(profile store.Profile, mergeExisting bool) (string, error) {
 	profileDir, err := m.validatedManagedProfileDir(profile)
 	if err != nil {
 		return "", err
@@ -274,9 +296,17 @@ func (m *Manager) EnableSharedSkills(profile store.Profile) (string, error) {
 			return "", err
 		}
 		if len(entries) > 0 {
-			return "", fmt.Errorf("%s already contains data; refusing to replace with shared link", mountPath)
+			if !mergeExisting {
+				return "", &SharedSkillsMergeRequiredError{
+					LocalDir:  mountPath,
+					SharedDir: sharedDir,
+				}
+			}
+			if err := mergeDirOverwrite(mountPath, sharedDir); err != nil {
+				return "", err
+			}
 		}
-		if err := os.Remove(mountPath); err != nil {
+		if err := os.RemoveAll(mountPath); err != nil {
 			return "", err
 		}
 	} else if !os.IsNotExist(err) {
@@ -288,6 +318,60 @@ func (m *Manager) EnableSharedSkills(profile store.Profile) (string, error) {
 	}
 
 	return sharedDir, nil
+}
+
+func mergeDirOverwrite(src, dst string) error {
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			if info, err := os.Lstat(target); err == nil {
+				if !info.IsDir() {
+					if err := os.RemoveAll(target); err != nil {
+						return err
+					}
+				}
+			} else if !os.IsNotExist(err) {
+				return err
+			}
+			return os.MkdirAll(target, 0o755)
+		}
+
+		if d.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symlink not supported in skills merge: %s", path)
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+
+		if existing, err := os.Lstat(target); err == nil {
+			if existing.IsDir() || existing.Mode()&os.ModeSymlink != 0 {
+				if err := os.RemoveAll(target); err != nil {
+					return err
+				}
+			}
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+
+		return copyFileReplace(path, target, info.Mode())
+	})
 }
 
 func (m *Manager) SharedSkillsEnabled(profile store.Profile) (bool, error) {

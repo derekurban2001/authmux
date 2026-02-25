@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/derekurban/profilex-cli/internal/app"
 	"github.com/derekurban/profilex-cli/internal/shim"
 	"github.com/derekurban/profilex-cli/internal/store"
 	"github.com/derekurban/profilex-cli/internal/usage"
@@ -54,6 +56,13 @@ type exportResultMsg struct {
 	Result exportResult
 }
 
+type skillsMergeConfirmMsg struct {
+	Tool      store.Tool
+	Profile   string
+	LocalDir  string
+	SharedDir string
+}
+
 type exportTickMsg struct{}
 type statusClearMsg struct{}
 
@@ -75,6 +84,7 @@ const (
 	modeTemplateDelete
 	modeProfileRename
 	modeProfileDelete
+	modeSkillsMergeConfirm
 )
 
 type paneFocus int
@@ -127,6 +137,11 @@ type model struct {
 	mode       modeKind
 	prompt     textinput.Model
 	applyIndex int
+
+	skillsMergeTool    store.Tool
+	skillsMergeProfile string
+	skillsMergeLocal   string
+	skillsMergeShared  string
 
 	statusMsg     string
 	statusIsError bool
@@ -252,6 +267,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.templatePreviewHasProblem = false
 		}
 		return m, tea.Batch(cmds...)
+	case skillsMergeConfirmMsg:
+		m.mode = modeSkillsMergeConfirm
+		m.skillsMergeTool = msg.Tool
+		m.skillsMergeProfile = msg.Profile
+		m.skillsMergeLocal = msg.LocalDir
+		m.skillsMergeShared = msg.SharedDir
+		return m, nil
 	case statusClearMsg:
 		if !m.statusExpiry.IsZero() && time.Now().After(m.statusExpiry) {
 			m.statusMsg = ""
@@ -794,6 +816,17 @@ func (m model) updateMode(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if strings.ToLower(key.String()) == "n" {
 			m.mode = modeNormal
 		}
+	case modeSkillsMergeConfirm:
+		if strings.ToLower(key.String()) == "y" || key.String() == "enter" {
+			return m, enableSkillsSharingWithMergeCmd(m.rootDir, m.skillsMergeTool, m.skillsMergeProfile)
+		}
+		if strings.ToLower(key.String()) == "n" {
+			m.mode = modeNormal
+			m.statusMsg = "Skills sharing left off"
+			m.statusIsError = false
+			m.statusExpiry = time.Now().Add(5 * time.Second)
+			return m, tea.Tick(5*time.Second, func(time.Time) tea.Msg { return statusClearMsg{} })
+		}
 	}
 	return m, nil
 }
@@ -1334,6 +1367,13 @@ func (m model) renderModeOverlay() string {
 		content = styleError.Render("Delete Profile") + "\n\n" +
 			"Are you sure you want to delete this profile?\n\n" +
 			renderKeyHint("y", "confirm delete") + "  " + renderKeyHint("n", "cancel") + "  " + renderKeyHint("Esc", "cancel")
+	case modeSkillsMergeConfirm:
+		content = styleWarning.Render("Enable Skills Sharing") + "\n\n" +
+			"Found existing skills in this profile.\n\n" +
+			"Merge them into shared skills (overwrite conflicts) and enable sharing?\n\n" +
+			"Profile skills: " + styleMuted.Render(m.skillsMergeLocal) + "\n" +
+			"Shared skills:  " + styleMuted.Render(m.skillsMergeShared) + "\n\n" +
+			renderKeyHint("y", "merge + enable") + "  " + renderKeyHint("n", "keep off") + "  " + renderKeyHint("Esc", "cancel")
 	default:
 		return ""
 	}
@@ -1374,6 +1414,8 @@ func (m model) renderHelpBar() string {
 		switch m.mode {
 		case modeProfileDelete, modeTemplateDelete:
 			hints = append(hints, renderKeyHint("y", "confirm delete"), renderKeyHint("n", "cancel"), renderKeyHint("Esc", "cancel"))
+		case modeSkillsMergeConfirm:
+			hints = append(hints, renderKeyHint("y", "merge + enable"), renderKeyHint("n", "keep off"), renderKeyHint("Esc", "cancel"))
 		case modeProfileRename, modeTemplateRename:
 			hints = append(hints, renderKeyHint("Enter", "confirm"), renderKeyHint("Esc", "cancel"))
 		case modeTemplateApply:
@@ -1415,6 +1457,8 @@ func (m modeKind) String() string {
 		return "profile-rename"
 	case modeProfileDelete:
 		return "profile-delete"
+	case modeSkillsMergeConfirm:
+		return "skills-merge-confirm"
 	default:
 		return "normal"
 	}
@@ -1732,8 +1776,40 @@ func toggleSkillsCmd(rootDir string, tool store.Tool, profile string, currentlyS
 			err = mgr.DisableSharedSkills(p)
 		} else {
 			_, err = mgr.EnableSharedSkills(p)
+			if err != nil {
+				var mergeErr *app.SharedSkillsMergeRequiredError
+				if errors.As(err, &mergeErr) {
+					return skillsMergeConfirmMsg{
+						Tool:      tool,
+						Profile:   profile,
+						LocalDir:  mergeErr.LocalDir,
+						SharedDir: mergeErr.SharedDir,
+					}
+				}
+			}
 		}
 		if err != nil {
+			return tuiOpMsg{Err: err}
+		}
+		return tuiOpMsg{Info: "Skills sharing updated", Refresh: true}
+	}
+}
+
+func enableSkillsSharingWithMergeCmd(rootDir string, tool store.Tool, profile string) tea.Cmd {
+	return func() tea.Msg {
+		mgr, err := newManager(rootDir)
+		if err != nil {
+			return tuiOpMsg{Err: err}
+		}
+		st, err := mgr.Load()
+		if err != nil {
+			return tuiOpMsg{Err: err}
+		}
+		p, err := mgr.GetProfile(st, tool, profile)
+		if err != nil {
+			return tuiOpMsg{Err: err}
+		}
+		if _, err := mgr.EnableSharedSkillsMerge(p); err != nil {
 			return tuiOpMsg{Err: err}
 		}
 		return tuiOpMsg{Info: "Skills sharing updated", Refresh: true}
