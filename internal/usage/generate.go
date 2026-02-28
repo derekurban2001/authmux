@@ -166,7 +166,7 @@ func annotateSharedMetadata(rows []NormalizedEvent, file usageFile, st *store.St
 	}
 
 	tool := rows[0].Tool
-	contributors := managedContributorsForRoots(st, tool, file.AliasRoots)
+	contributors := managedContributorsForFile(st, tool, file)
 	shared := isSharedSessionFile(file, tool, contributors)
 	if !shared {
 		return rows
@@ -177,6 +177,14 @@ func annotateSharedMetadata(rows []NormalizedEvent, file usageFile, st *store.St
 	for _, c := range contributors {
 		ids = append(ids, c.id)
 		names = append(names, c.name)
+	}
+	if len(contributors) == 0 {
+		if id := strings.TrimSpace(rows[0].ProfileID); id != "" {
+			ids = append(ids, id)
+		}
+		if name := strings.TrimSpace(rows[0].ProfileName); name != "" {
+			names = append(names, name)
+		}
 	}
 
 	for i := range rows {
@@ -205,8 +213,8 @@ type contributingProfile struct {
 	name string
 }
 
-func managedContributorsForRoots(st *store.State, tool Tool, roots []string) []contributingProfile {
-	if st == nil || len(roots) == 0 {
+func managedContributorsForFile(st *store.State, tool Tool, file usageFile) []contributingProfile {
+	if st == nil {
 		return nil
 	}
 
@@ -215,11 +223,14 @@ func managedContributorsForRoots(st *store.State, tool Tool, roots []string) []c
 		return nil
 	}
 
-	rootSet := map[string]bool{}
-	for _, root := range roots {
-		rootSet[pathKey(root)] = true
+	filePath := file.CanonicalPath
+	if strings.TrimSpace(filePath) == "" {
+		filePath = file.ParsePath
 	}
+	filePath = normalizePath(filePath)
+	fileCanonical := canonicalizePath(filePath)
 
+	rootSet := candidateRootSet(file, leaf)
 	out := make([]contributingProfile, 0)
 	seen := map[string]bool{}
 	for _, p := range st.Profiles {
@@ -227,9 +238,26 @@ func managedContributorsForRoots(st *store.State, tool Tool, roots []string) []c
 			continue
 		}
 		profileRoot := ensureLeaf(p.Dir, leaf)
-		if !rootSet[pathKey(profileRoot)] {
+		profileCanonical := canonicalizePath(profileRoot)
+
+		matches := false
+		for _, cand := range []string{profileRoot, profileCanonical} {
+			if strings.TrimSpace(cand) == "" {
+				continue
+			}
+			if rootSet[pathKey(cand)] {
+				matches = true
+				break
+			}
+			if hasPathPrefix(filePath, cand) || hasPathPrefix(fileCanonical, cand) {
+				matches = true
+				break
+			}
+		}
+		if !matches {
 			continue
 		}
+
 		id := string(p.Tool) + "/" + p.Name
 		if seen[id] {
 			continue
@@ -278,4 +306,62 @@ func sessionLeafForUsageTool(tool Tool) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func candidateRootSet(file usageFile, leaf string) map[string]bool {
+	set := map[string]bool{}
+	add := func(v string) {
+		if strings.TrimSpace(v) == "" {
+			return
+		}
+		set[pathKey(v)] = true
+	}
+
+	for _, root := range file.AliasRoots {
+		add(root)
+		add(canonicalizePath(root))
+	}
+
+	for _, p := range file.AliasPaths {
+		if root := usageLeafRootFromPath(p, leaf); root != "" {
+			add(root)
+			add(canonicalizePath(root))
+		}
+	}
+
+	p := file.CanonicalPath
+	if strings.TrimSpace(p) == "" {
+		p = file.ParsePath
+	}
+	if root := usageLeafRootFromPath(p, leaf); root != "" {
+		add(root)
+		add(canonicalizePath(root))
+	}
+	return set
+}
+
+func usageLeafRootFromPath(path, leaf string) string {
+	p := strings.ToLower(normalizePath(path))
+	marker := "/" + strings.ToLower(strings.TrimSpace(leaf)) + "/"
+	if idx := strings.Index(p, marker); idx >= 0 {
+		raw := normalizePath(path)
+		return raw[:idx+len(marker)-1]
+	}
+	suffix := "/" + strings.ToLower(strings.TrimSpace(leaf))
+	if strings.HasSuffix(p, suffix) {
+		return normalizePath(path)
+	}
+	return ""
+}
+
+func hasPathPrefix(path, root string) bool {
+	p := pathKey(path)
+	r := pathKey(root)
+	if p == "" || r == "" {
+		return false
+	}
+	if p == r {
+		return true
+	}
+	return strings.HasPrefix(p, r+"/")
 }
